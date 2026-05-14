@@ -15,6 +15,20 @@ Control a DJI Tello drone using only your mind and head movements. This project 
 - **Premium Dark Dashboard**: A custom-built PyQt6 interface designed for professional BCI experimentation.
 - **Simulation Mode**: Test your BCI mapping and head tracking precision in a safe software-only environment before taking flight.
 
+## 📡 How the Drone Connection Works
+
+The connection between your computer and the DJI Tello is established over a dedicated WiFi link. Here is the step-by-step process:
+
+1.  **Direct WiFi Link**: The DJI Tello acts as a WiFi Access Point. You must manually connect your computer's WiFi to the network broadcast by the drone (usually named `TELLO-XXXXXX`).
+2.  **Communication Protocol**: Once connected, the application uses the **Tello SDK** via the `djitellopy` library. Communication happens over UDP:
+    *   **Commands (Port 8889)**: For sending flight instructions (TakeOff, Land, RC movements).
+    *   **State (Port 8890)**: For receiving real-time telemetry (battery, altitude, etc.).
+    *   **Video (Port 11111)**: For streaming the live H.264 camera feed.
+3.  **Dashboard Integration**: When you click **"Connect to Drone"** in the UI:
+    *   The app initializes the Tello SDK and attempts to "ping" the drone.
+    *   Upon success, it triggers a background **Video Thread** to start decoding the camera stream.
+    *   It starts a 20Hz (50ms) **RC Control Loop** that continuously sends movement data to ensure responsive flight.
+
 ---
 
 ## 🏗 Project Architecture
