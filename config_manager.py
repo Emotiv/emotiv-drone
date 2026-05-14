@@ -2,6 +2,7 @@ import json
 import os
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+CREDENTIALS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
 
 DEFAULT_CONFIG = {
     # Emotiv Cortex API
@@ -38,25 +39,40 @@ DEFAULT_CONFIG = {
 class ConfigManager:
     @staticmethod
     def load_config() -> dict:
-        if not os.path.exists(CONFIG_FILE):
-            ConfigManager.save_config(DEFAULT_CONFIG)
-            return DEFAULT_CONFIG.copy()
+        config = DEFAULT_CONFIG.copy()
         
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                loaded = json.load(f)
-                # Merge with defaults to ensure missing keys are populated
-                config = DEFAULT_CONFIG.copy()
-                config.update(loaded)
-                return config
-        except Exception as e:
-            print(f"Error loading config: {e}. Using defaults.")
-            return DEFAULT_CONFIG.copy()
+        # Load main config
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, 'r') as f:
+                    config.update(json.load(f))
+            except Exception as e:
+                print(f"Error loading config: {e}")
+                
+        # Load credentials
+        if os.path.exists(CREDENTIALS_FILE):
+            try:
+                with open(CREDENTIALS_FILE, 'r') as f:
+                    config.update(json.load(f))
+            except Exception as e:
+                print(f"Error loading credentials: {e}")
+                
+        # Ensure we always save files if they don't exist
+        if not os.path.exists(CONFIG_FILE) or not os.path.exists(CREDENTIALS_FILE):
+            ConfigManager.save_config(config)
+
+        return config
 
     @staticmethod
     def save_config(config: dict):
+        credentials_keys = ["client_id", "client_secret"]
+        credentials_dict = {k: config[k] for k in credentials_keys if k in config}
+        main_config_dict = {k: v for k, v in config.items() if k not in credentials_keys}
+        
         try:
             with open(CONFIG_FILE, 'w') as f:
-                json.dump(config, f, indent=4)
+                json.dump(main_config_dict, f, indent=4)
+            with open(CREDENTIALS_FILE, 'w') as f:
+                json.dump(credentials_dict, f, indent=4)
         except Exception as e:
             print(f"Error saving config: {e}")

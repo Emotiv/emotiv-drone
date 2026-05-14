@@ -1,0 +1,43 @@
+{
+    "device_id": "",
+    "profile_name": "gio",
+    "simulate": false,
+    "fix_indices": false,
+    "sensitivity": 0.5,
+    "deadzone": 0.02,
+    "smoothing_window": 4,
+    "max_speed": 100,
+    "altitude_hold": true,
+    "yaw_sensitivity": 0.5,
+    "throttle_sensitivity": 0.5,
+    "mental_mappings": [
+        {
+            "command": "push",
+            "action": "TakeOff",
+            "threshold": 0.5,
+            "auto_release": 0
+        },
+        {
+            "command": "pull",
+            "action": "Land",
+            "threshold": 0.5,
+            "auto_release": 0
+        },
+        {
+            "command": "drop",
+            "action": "EmergencyStop",
+            "threshold": 0.5,
+            "auto_release": 0
+        },
+        {
+            "command": "lift",
+            "action": "FlipForward",
+            "threshold": 0.5,
+            "auto_release": 0
+        }
+    ],
+    "sens_left": 300.0,
+    "sens_right": 300.0,
+    "sens_fwd": 50.0,
+    "sens_back": 50.0
+}
