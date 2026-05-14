@@ -1,4 +1,4 @@
-# Tello BCI Drone Controller
+# Emotiv Drone
 
 Control a DJI Tello drone with your mind and head movements using an Emotiv EEG headset.
 
@@ -21,7 +21,7 @@ Control a DJI Tello drone with your mind and head movements using an Emotiv EEG 
 ## 📦 Installation
 
 ```bash
-cd tello-controller
+cd emotiv-drone
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
