@@ -78,7 +78,7 @@ python3 drone_controller.py --simulate
 - `drone_adapter.py` — Translates head motion deltas into Tello RC commands
 - `config_manager.py` — Persistent settings (config.json)
 - `cortex.py` — Emotiv Cortex API WebSocket wrapper
-- `neurogaming/` — Shared signal processing (QuaternionProcessor, MentalCommandProcessor)
+- `bci_core/` — Shared signal processing (QuaternionProcessor, MentalCommandProcessor)
 
 ## ⚠️ Safety
 

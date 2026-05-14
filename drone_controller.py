@@ -17,7 +17,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cortex import Cortex
-from neurogaming.program import ProgramSimulator
+from bci_core.program import ProgramSimulator
 from drone_adapter import DroneAdapter
 
 

@@ -12,7 +12,7 @@ import time
 
 
 class DroneAdapter:
-    """Bridges the gap between neurogaming motion output and Tello SDK calls."""
+    """Bridges the gap between bci_core motion output and Tello SDK calls."""
 
     def __init__(self, tello=None, max_speed: int = 60,
                  yaw_sensitivity: float = 0.5,
@@ -68,7 +68,7 @@ class DroneAdapter:
     # Head motion → RC translation
     # ──────────────────────────────────────────────
     def move_by(self, dx: int, dy: int):
-        """Called by the neurogaming loop with cursor-like deltas.
+        """Called by the bci_core loop with cursor-like deltas.
         
         dx > 0 → head turned right → drone rotates right
         dy > 0 → head tilted down  → drone moves forward
