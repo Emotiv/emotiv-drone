@@ -1,5 +1,5 @@
 """
-Tello Drone Controller – NeuroGaming Client
+Tello Drone Controller
 
 Connects to the Emotiv Cortex API, processes head motion via QuaternionProcessor,
 and sends RC commands to the Tello drone via DroneAdapter.
@@ -27,11 +27,13 @@ class TelloDroneClient:
     def __init__(self, client_id: str, client_secret: str,
                  tello=None, fix_indices: bool = False,
                  debug: bool = False, config: dict = None,
-                 bci_status_callback=None, bci_telemetry_callback=None):
+                 bci_status_callback=None, bci_telemetry_callback=None,
+                 profiles_callback=None):
         self.c = Cortex(client_id, client_secret, debug_mode=debug)
         
         self.bci_status_callback = bci_status_callback
         self.bci_telemetry_callback = bci_telemetry_callback
+        self.profiles_callback = profiles_callback
         
         self.latest_raw_mot = ""
         self.latest_raw_com = ""
@@ -50,6 +52,12 @@ class TelloDroneClient:
             altitude_hold=config.get("altitude_hold", True)
         )
         
+        mental_move_actions = {
+            m.get("action") for m in (mental_mappings or [])
+            if m.get("action", "").startswith("Move")
+        }
+        self.drone.set_mental_move_actions(mental_move_actions)
+        
         self.fix_indices = fix_indices
         self.debug = debug
         self.running = True
@@ -64,6 +72,9 @@ class TelloDroneClient:
         self.c.bind(headset_connected=self.on_headset_connected)
         self.c.bind(headset_scanning_finished=self.on_headset_scanning_finished)
         self.c.bind(subscribe_done=self.on_subscribe_done)
+        self.c.bind(access_right_pending=self.on_access_right_pending)
+        self.c.bind(query_profile_done=self.on_query_profile_done)
+        self.c.bind(load_unload_profile_done=self.on_load_unload_profile_done)
 
     def start(self, headset_id: str = '', profile_name: str = ''):
         if self.bci_status_callback:
@@ -106,6 +117,11 @@ class TelloDroneClient:
         
         # Subscribe to device telemetry along with motion and mental
         self.c.sub_request(['mot', 'com', 'dev'])
+        
+        # Load the selected training profile if one is set
+        if getattr(self.c, 'profile_name', ''):
+            print(f'Loading profile: {self.c.profile_name}', flush=True)
+            self.c.setup_profile(self.c.profile_name, 'load')
         
         # We track subscriptions to ensure both mot and com are active
         self._subscribed_streams = set()
@@ -228,6 +244,39 @@ class TelloDroneClient:
         print(error_msg, flush=True)
         if self.bci_status_callback:
             self.bci_status_callback(error_msg)
+
+    def on_access_right_pending(self, *args, **kwargs):
+        """Fired when requestAccess returns accessGranted=false.
+        The user needs to open EMOTIV Launcher and approve the application.
+        """
+        msg = kwargs.get('message',
+            'Access not granted. Please open EMOTIV Launcher and approve this application.')
+        print(f"[access_right_pending] {msg}", flush=True)
+        if self.bci_status_callback:
+            self.bci_status_callback(f"PENDING_ACCESS:{msg}")
+
+    def on_query_profile_done(self, *args, **kwargs):
+        """Fired when queryProfile returns the list of available training profiles.
+        Automatically picks the first profile for use after session creation.
+        """
+        profiles = kwargs.get('data', [])
+        print(f"[query_profile_done] {len(profiles)} profile(s) found", flush=True)
+        if profiles:
+            first = profiles[0]
+            self.c.set_wanted_profile(first)
+            print(f"[query_profile_done] Auto-selected first profile: '{first}'", flush=True)
+        if self.profiles_callback:
+            self.profiles_callback(profiles)
+
+    def on_load_unload_profile_done(self, *args, **kwargs):
+        """Fired when setupProfile 'load' completes successfully."""
+        is_loaded = kwargs.get('isLoaded', False)
+        if is_loaded:
+            profile_name = getattr(self.c, 'profile_name', '')
+            msg = f"Profile '{profile_name}' loaded. Ready for flight!"
+            print(f"[profile] {msg}", flush=True)
+            if self.bci_status_callback:
+                self.bci_status_callback(f"PROFILE_LOADED:{msg}")
 
     # ──────────────────────────────────────────────
     # Simulation mode

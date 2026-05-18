@@ -4,7 +4,10 @@ Drone Adapter – translates head motion deltas and mental commands into Tello R
 Maps:
   - Head yaw  (dx) → yaw_velocity  (rotation in place)
   - Head pitch (dy) → forward_backward_velocity (pitch / forward-backward)
-  - Mental commands → discrete drone actions (TakeOff, Land, Flip, EmergencyStop)
+  - Mental commands → discrete drone actions:
+      TakeOff, Land, EmergencyStop,
+      FlipForward/Back/Left/Right,
+      MoveForward/Back/Left/Right/Up/Down
 """
 
 import threading
@@ -35,6 +38,13 @@ class DroneAdapter:
 
         self._rc_thread = None
         self._running = False
+        
+        self.mental_move_actions = set()
+        
+        # State for smoothly ramping mental movements
+        self._mental_move_action = None
+        self._mental_move_speed = 0.0
+        self._mental_move_expiry = 0.0
 
     # ──────────────────────────────────────────────
     # RC command loop – Tello needs constant updates
@@ -55,9 +65,10 @@ class DroneAdapter:
 
     def _rc_loop(self):
         while self._running:
+            # Let get_rc_values handle the combination of mental + motion
+            lr, fb, ud, yaw = self.get_rc_values()
+
             if self.tello and self.is_flying:
-                with self.lock:
-                    lr, fb, ud, yaw = self._lr, self._fb, self._ud, self._yaw
                 try:
                     self.tello.send_rc_control(lr, fb, ud, yaw)
                 except Exception as e:
@@ -67,6 +78,10 @@ class DroneAdapter:
     # ──────────────────────────────────────────────
     # Head motion → RC translation
     # ──────────────────────────────────────────────
+    def set_mental_move_actions(self, actions: set):
+        with self.lock:
+            self.mental_move_actions = set(actions)
+
     def move_by(self, dx: int, dy: int):
         """Called by the bci_core loop with cursor-like deltas.
         
@@ -76,8 +91,17 @@ class DroneAdapter:
         with self.lock:
             # Scale deltas to RC range (-100..100)
             self._lr = 0                             # left-right (disabled)
-            self._yaw = self._clamp(int(dx * 2.5))   # rotate left-right
-            self._fb = self._clamp(int(dy * 2.5))    # forward-backward (head down = forward)
+            yaw = self._clamp(int(dx * 2.5))         # rotate left-right
+            fb = self._clamp(int(dy * 2.5))          # forward-backward (head down = forward)
+            
+            # Disable pitch/yaw directions if they are mapped to mental commands
+            if "MoveForward" in self.mental_move_actions and fb > 0: fb = 0
+            if "MoveBack" in self.mental_move_actions and fb < 0: fb = 0
+            if "MoveRight" in self.mental_move_actions and yaw > 0: yaw = 0
+            if "MoveLeft" in self.mental_move_actions and yaw < 0: yaw = 0
+            
+            self._yaw = yaw
+            self._fb = fb
             # ud is left at 0 unless explicitly set
             if self.altitude_hold:
                 self._ud = 0
@@ -105,7 +129,10 @@ class DroneAdapter:
         action = action.strip()
         if action == "None":
             return
-            
+
+        # Duration to hold mental movements
+        move_duration = auto_release_time if auto_release_time > 0 else 1.0
+
         try:
             if action == "TakeOff":
                 if not self.is_flying:
@@ -115,6 +142,7 @@ class DroneAdapter:
                     self.start_rc_loop()
                 else:
                     print("[DroneAdapter] Ignored TakeOff (already flying)")
+
             elif action == "Land":
                 if self.is_flying:
                     print("[DroneAdapter] Landing...")
@@ -123,11 +151,13 @@ class DroneAdapter:
                     self.is_flying = False
                 else:
                     print("[DroneAdapter] Ignored Land (already landed)")
+
             elif action == "EmergencyStop":
                 print("[DroneAdapter] EMERGENCY STOP!")
                 self.stop_movement()
                 if self.tello: self.tello.emergency()
                 self.is_flying = False
+
             elif action.startswith("Flip"):
                 if self.is_flying:
                     direction = action.replace("Flip", "").lower()[0]  # f, b, l, r
@@ -136,8 +166,24 @@ class DroneAdapter:
                         if self.tello: self.tello.flip(direction)
                 else:
                     print(f"[DroneAdapter] Ignored Flip (not flying)")
+
+            elif action.startswith("Move"):
+                # Delegate movement to _rc_loop
+                with self.lock:
+                    if self._mental_move_action == action and time.time() < self._mental_move_expiry:
+                        # Action is already running: refresh the timer without resetting velocity
+                        self._mental_move_expiry = time.time() + move_duration
+                        print(f"[DroneAdapter] {action} time refreshed (+{move_duration}s)")
+                    else:
+                        # New action: start from speed 1
+                        self._mental_move_action = action
+                        self._mental_move_speed = 1.0
+                        self._mental_move_expiry = time.time() + move_duration
+                        print(f"[DroneAdapter] {action} started (ramping to 30 over {move_duration}s)")
+                
             else:
                 print(f"[DroneAdapter] Unknown action: {action}")
+
         except Exception as e:
             print(f"[DroneAdapter] Action error ({action}): {e}")
 
@@ -148,8 +194,36 @@ class DroneAdapter:
         return max(-self.max_speed, min(self.max_speed, value))
 
     def get_rc_values(self):
+        """Returns the final combined RC values (motion + active mental movement)."""
         with self.lock:
-            return self._lr, self._fb, self._ud, self._yaw
+            # Process mental movement progression
+            now = time.time()
+            m_lr = m_fb = m_ud = m_yaw = 0
+            if self._mental_move_action and now < self._mental_move_expiry:
+                # Increase speed gradually up to 30
+                if self._mental_move_speed < 30.0:
+                    # Called at ~20Hz if rc_loop is running, or slightly different by UI
+                    # so 1.5 per tick is roughly 1 second to 30.
+                    self._mental_move_speed = min(30.0, self._mental_move_speed + 1.5)
+                
+                speed = int(self._mental_move_speed)
+                if self._mental_move_action == "MoveForward": m_fb = speed
+                elif self._mental_move_action == "MoveBack": m_fb = -speed
+                elif self._mental_move_action == "MoveLeft": m_lr = -speed
+                elif self._mental_move_action == "MoveRight": m_lr = speed
+                elif self._mental_move_action == "MoveUp": m_ud = speed
+                elif self._mental_move_action == "MoveDown": m_ud = -speed
+            else:
+                self._mental_move_action = None
+                self._mental_move_speed = 0.0
+
+            # Combine: mental motion overrides head motion on active axes
+            lr = m_lr if m_lr != 0 else self._lr
+            fb = m_fb if m_fb != 0 else self._fb
+            ud = m_ud if m_ud != 0 else self._ud
+            yaw = m_yaw if m_yaw != 0 else self._yaw
+            
+            return lr, fb, ud, yaw
 
     def cleanup(self):
         """Safely stop everything."""

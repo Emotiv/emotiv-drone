@@ -412,6 +412,7 @@ class TelloControllerApp(QMainWindow):
     drone_connected_signal = pyqtSignal(bool, str)
     bci_status_signal = pyqtSignal(str)
     bci_telemetry_signal = pyqtSignal(int, int)
+    profiles_signal = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
@@ -427,6 +428,7 @@ class TelloControllerApp(QMainWindow):
         self.drone_connected_signal.connect(self._on_drone_connection_result)
         self.bci_status_signal.connect(self._do_update_bci_status)
         self.bci_telemetry_signal.connect(self._do_update_bci_telemetry)
+        self.profiles_signal.connect(self._populate_profiles)
 
         self.stdout_stream = EmittingStream()
         self.stdout_stream.textWritten.connect(self.log_signal.emit)
@@ -476,9 +478,32 @@ class TelloControllerApp(QMainWindow):
         c_layout.addWidget(QLabel("Client Secret:")); self.client_secret_input = QLineEdit()
         self.client_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
         c_layout.addWidget(self.client_secret_input)
-        c_layout.addWidget(QLabel("Profile Name:")); self.profile_name_input = QLineEdit()
-        self.profile_name_input.setPlaceholderText("Leave empty for active profile")
-        c_layout.addWidget(self.profile_name_input)
+
+        # ── Profile display (auto-selected after authorization) ──
+        profile_hdr = QHBoxLayout()
+        profile_hdr.addWidget(QLabel("Training Profile:"))
+        profile_hdr.addStretch()
+        self.refresh_profiles_btn = QPushButton("🔄 Refresh")
+        self.refresh_profiles_btn.setFixedWidth(90)
+        self.refresh_profiles_btn.setEnabled(False)
+        self.refresh_profiles_btn.setToolTip("Re-fetch profile list from Cortex")
+        self.refresh_profiles_btn.clicked.connect(self._refresh_profiles)
+        profile_hdr.addWidget(self.refresh_profiles_btn)
+        c_layout.addLayout(profile_hdr)
+
+        self.profile_display_lbl = QLabel("— connect to load profiles —")
+        self.profile_display_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.profile_display_lbl.setStyleSheet(
+            "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
+            "padding: 8px 12px; color: #8b949e; font-size: 14px;"
+        )
+        c_layout.addWidget(self.profile_display_lbl)
+
+        self.profile_auto_lbl = QLabel("First profile will be auto-selected from your training data.")
+        self.profile_auto_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;"
+        )
+        c_layout.addWidget(self.profile_auto_lbl)
 
         self.simulate_cb = QCheckBox("Simulation Mode (Test UI without headset)")
         c_layout.addWidget(self.simulate_cb)
@@ -708,34 +733,178 @@ class TelloControllerApp(QMainWindow):
             fix_indices=self.config.get("fix_indices", False),
             debug=False, config=self.config,
             bci_status_callback=self.update_bci_status,
-            bci_telemetry_callback=self.update_bci_telemetry
+            bci_telemetry_callback=self.update_bci_telemetry,
+            profiles_callback=self.update_profiles
         )
 
         self.client_thread = threading.Thread(
             target=lambda: self.drone_client.simulate() if is_sim else self.drone_client.start(
                 headset_id=self.config.get("device_id", ""),
-                profile_name=self.config.get("profile_name", "")
+                profile_name=''  # profile is auto-selected in on_query_profile_done
             ), daemon=True
         )
         self.client_thread.start()
-        
         self.telem_timer.start(50)
 
     def update_bci_status(self, status: str):
         self.bci_status_signal.emit(status)
 
+    def update_profiles(self, profiles: list):
+        """Thread-safe: forward profile list to the Qt main thread."""
+        self.profiles_signal.emit(profiles)
+
+    def _populate_profiles(self, profiles: list):
+        """Show the auto-selected (first) profile name in the display label."""
+        self.refresh_profiles_btn.setEnabled(True)
+        if not profiles:
+            self.profile_display_lbl.setText("⚠️ No profiles found")
+            self.profile_display_lbl.setStyleSheet(
+                "background-color: #1f0e0e; border: 1px solid #f85149; border-radius: 6px;"
+                "padding: 8px 12px; color: #f85149; font-size: 14px;"
+            )
+            self.profile_auto_lbl.setText(
+                "No training profiles found. Create one in EMOTIV Launcher."
+            )
+            return
+
+        first = profiles[0]
+        count = len(profiles)
+        self.profile_display_lbl.setText(f"🧠  {first}")
+        self.profile_display_lbl.setStyleSheet(
+            "background-color: #0d1a2d; border: 1px solid #58a6ff; border-radius: 6px;"
+            "padding: 8px 12px; color: #58a6ff; font-size: 14px; font-weight: bold;"
+        )
+        self.profile_auto_lbl.setText(
+            f"Auto-selected • 1 of {count} profile{'s' if count != 1 else ''} on your account"
+        )
+        self.config["profile_name"] = first
+        self.log(f"Auto-selected profile '{first}' ({count} profile(s) available).")
+
+    def _refresh_profiles(self):
+        """Re-send queryProfile to Cortex (available once authorized)."""
+        if self.drone_client and hasattr(self.drone_client, 'c'):
+            try:
+                self.drone_client.c.query_profile()
+                self.log("Refreshing profile list...")
+            except Exception as e:
+                self.log(f"Refresh failed: {e}")
+
     def _do_update_bci_status(self, status: str):
         self.log(f"BCI Status: {status}")
+
+        if status.startswith("PENDING_ACCESS:"):
+            self._show_access_pending_ui(status[len("PENDING_ACCESS:"):])
+            return
+
+        if status.startswith("PROFILE_LOADED:"):
+            msg = status[len("PROFILE_LOADED:"):]
+            self.bci_conn_status_lbl.setText(f"🟢 🧠 {msg}")
+            self.bci_conn_status_lbl.setStyleSheet("background-color: #1a4a2e; border: 1px solid #3fb950;")
+            self._hide_access_pending_ui()
+            self.p0_next_btn.setEnabled(True)
+            self._override_action_for_test()
+            return
+
         self.bci_conn_status_lbl.setText(f"🟡 {status}")
         if "Active" in status:
             self.bci_conn_status_lbl.setText("🟢 BCI: Active")
             self.bci_conn_status_lbl.setStyleSheet("background-color: #238636;")
-            self.p0_next_btn.setEnabled(True)
+            self._hide_access_pending_ui()
             self._override_action_for_test()
+            # Enable Next for simulation or when no profile was chosen
+            is_sim = self.simulate_cb.isChecked()
+            no_profile = not bool(self.config.get("profile_name", ""))
+            if is_sim or no_profile:
+                self.p0_next_btn.setEnabled(True)
+            else:
+                # Profile is selected — wait for PROFILE_LOADED before enabling Next
+                self.bci_conn_status_lbl.setText("🟡 Session Active — Loading profile...")
         elif "Error" in status or "error" in status.lower() or "finished" in status.lower() or "warning" in status.lower() or "failed" in status.lower():
             self.bci_conn_status_lbl.setText("🔴 BCI: Scan Finished / Not Found")
             self.connect_bci_btn.setText("Retry Connection")
             self.connect_bci_btn.setEnabled(True)
+
+    def _show_access_pending_ui(self, message: str):
+        """Show a prominent inline banner asking the user to approve via EMOTIV Launcher."""
+        self.bci_conn_status_lbl.setText("🟡 Waiting for EMOTIV Launcher approval...")
+        self.bci_conn_status_lbl.setStyleSheet("background-color: #7d4e00; border: 1px solid #e3a01a;")
+
+        # Build or reuse the banner widget
+        if not hasattr(self, '_access_banner') or self._access_banner is None:
+            from PyQt6.QtWidgets import QFrame
+            banner = QFrame()
+            banner.setStyleSheet(
+                "QFrame { background-color: #1f1300; border: 1px solid #e3a01a; "
+                "border-radius: 8px; padding: 6px; }"
+            )
+            b_layout = QVBoxLayout(banner)
+            b_layout.setSpacing(8)
+
+            icon_row = QHBoxLayout()
+            warn_icon = QLabel("⚠️")
+            warn_icon.setStyleSheet("font-size: 22px; background: transparent; border: none;")
+            warn_title = QLabel("EMOTIV Launcher Approval Required")
+            warn_title.setStyleSheet(
+                "font-weight: bold; font-size: 14px; color: #e3a01a; "
+                "background: transparent; border: none;"
+            )
+            icon_row.addWidget(warn_icon)
+            icon_row.addWidget(warn_title)
+            icon_row.addStretch()
+            b_layout.addLayout(icon_row)
+
+            self._access_msg_lbl = QLabel(message)
+            self._access_msg_lbl.setWordWrap(True)
+            self._access_msg_lbl.setStyleSheet(
+                "color: #c9d1d9; font-size: 13px; background: transparent; border: none;"
+            )
+            b_layout.addWidget(self._access_msg_lbl)
+
+            instructions = QLabel(
+                "1. Open the <b>EMOTIV Launcher</b> app on your computer.\n"
+                "2. Look for a permission request notification from this application.\n"
+                "3. Click <b>Allow</b> to grant access.\n"
+                "4. Then press <b>Retry</b> below."
+            )
+            instructions.setWordWrap(True)
+            instructions.setStyleSheet(
+                "color: #8b949e; font-size: 12px; background: transparent; border: none; "
+                "line-height: 1.6;"
+            )
+            b_layout.addWidget(instructions)
+
+            retry_btn = QPushButton("🔄 I've approved — Retry")
+            retry_btn.setObjectName("blueBtn")
+            retry_btn.clicked.connect(self._retry_access_request)
+            b_layout.addWidget(retry_btn)
+
+            self._access_banner = banner
+            # Insert banner right below the status badge in the page-0 container
+            # The container's layout is c_layout (index 0 child of page 0)
+            page0_container = self.stacked_widget.widget(0).findChild(QWidget)
+            page0_c_layout = page0_container.layout() if page0_container else None
+            if page0_c_layout:
+                # Insert before the btn_row (second-to-last item) - just append for safety
+                page0_c_layout.insertWidget(
+                    page0_c_layout.indexOf(self.bci_conn_status_lbl) + 1,
+                    banner
+                )
+        else:
+            self._access_msg_lbl.setText(message)
+            self._access_banner.setVisible(True)
+
+    def _hide_access_pending_ui(self):
+        if hasattr(self, '_access_banner') and self._access_banner is not None:
+            self._access_banner.setVisible(False)
+
+    def _retry_access_request(self):
+        """Re-send requestAccess so Cortex re-checks or EMOTIV Launcher re-prompts."""
+        if self.drone_client and hasattr(self.drone_client, 'c'):
+            self.log("Retrying requestAccess with EMOTIV Cortex...")
+            try:
+                self.drone_client.c.request_access()
+            except Exception as e:
+                self.log(f"Retry failed: {e}")
 
     def update_bci_telemetry(self, battery: int, signal: int):
         self.bci_telemetry_signal.emit(battery, signal)
@@ -905,13 +1074,14 @@ class TelloControllerApp(QMainWindow):
         c = self.config
         self.client_id_input.setText(c.get("client_id", ""))
         self.client_secret_input.setText(c.get("client_secret", ""))
-        self.profile_name_input.setText(c.get("profile_name", ""))
         self.simulate_cb.setChecked(c.get("simulate", False))
+        # Profile combo is populated dynamically; just remember the saved name
+        # so _populate_profiles can re-select it once the list arrives.
 
     def save_settings(self):
         self.config["client_id"] = self.client_id_input.text()
         self.config["client_secret"] = self.client_secret_input.text()
-        self.config["profile_name"] = self.profile_name_input.text()
+        # profile_name is set automatically by _populate_profiles when profiles arrive
         self.config["simulate"] = self.simulate_cb.isChecked()
         ConfigManager.save_config(self.config)
 
@@ -936,6 +1106,12 @@ class TelloControllerApp(QMainWindow):
                 # Update mental mappings
                 mappings = self.config.get("mental_mappings", [])
                 self.drone_client.program.mental_processor.mappings = mappings
+                if hasattr(self.drone_client, 'drone'):
+                    mental_move_actions = {
+                        m.get("action") for m in mappings
+                        if m.get("action", "").startswith("Move")
+                    }
+                    self.drone_client.drone.set_mental_move_actions(mental_move_actions)
 
     def log(self, msg: str):
         ts = time.strftime("%H:%M:%S")
@@ -1022,7 +1198,12 @@ class SettingsDialog(QDialog):
         self.mental_layout = QVBoxLayout()
         self.mapping_rows = []
         CMDS = ["None", "push", "pull", "lift", "drop", "click"]
-        ACTIONS = ["None", "TakeOff", "Land", "EmergencyStop", "FlipForward", "FlipBack", "FlipLeft", "FlipRight"]
+        ACTIONS = [
+            "None",
+            "TakeOff", "Land", "EmergencyStop",
+            "MoveForward", "MoveBack", "MoveLeft", "MoveRight", "MoveUp", "MoveDown",
+            "FlipForward", "FlipBack", "FlipLeft", "FlipRight",
+        ]
         
         mappings = self.config.get("mental_mappings", [])
         for i in range(4):

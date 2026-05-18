@@ -85,7 +85,8 @@ class Cortex(Dispatcher):
                 'mc_training_threshold_done', 'create_record_done', 'stop_record_done','warn_cortex_stop_all_sub', 'warn_record_post_processing_done',
                 'inject_marker_done', 'update_marker_done', 'export_record_done', 'new_data_labels', 
                 'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
-                'new_met_data', 'new_pow_data', 'new_sys_data', 'headset_connected', 'headset_scanning_finished', 'subscribe_done']
+                'new_met_data', 'new_pow_data', 'new_sys_data', 'headset_connected', 'headset_scanning_finished',
+                'subscribe_done', 'access_right_pending']
     def __init__(self, client_id, client_secret, debug_mode=False, **kwargs):
         client_id = "JRn9yb9uZzo6z4ADqnN8bWhIrOQbwf8ZdmIyuc9H"
         client_secret = "gU2pSgmLFjpMgkTcGq5HUwgeuERaaKaJYbxgi8i1q1JvDd9XDLbJffZMO3bzb4qDiKl5WRtkR0yyb8yiLzHmr8aPesW9kT9W7q2flEFDNJdfrNwyTLehDZSwbFovbSFm"  
@@ -176,15 +177,17 @@ class Cortex(Dispatcher):
                 # authorize
                 self.authorize()
             else:
-                # wait approve from Emotiv Launcher
-                msg = result_dic['message']
-                warnings.warn(msg)
+                # Access not yet granted – notify listeners so the UI can prompt the user
+                msg = result_dic.get('message',
+                    'Access not granted. Please open EMOTIV Launcher and approve this application.')
+                print(f'[requestAccess] {msg}', flush=True)
+                self.emit('access_right_pending', message=msg)
         elif req_id == AUTHORIZE_ID:
             print("Authorize successfully.")
             self.auth = result_dic['cortexToken']
-            #After successful authorization, the app will call the API refresh headset list for the first time
-            self.refresh_headset_list()
-            # query headsets
+            # Fetch the profile list so the UI can show a dropdown
+            self.query_profile()
+            # Query headsets directly; refresh is only triggered if none are found
             self.query_headset()
         elif req_id == QUERY_HEADSET_ID:
             self.headset_list = result_dic
@@ -200,8 +203,10 @@ class Cortex(Dispatcher):
                     headset_status = status
 
             if len(self.headset_list) == 0:
+                # No devices visible yet – trigger a BLE scan and wait for results
                 self.isHeadsetConnected = False
-                warnings.warn("No headset available. Please turn on a headset.")
+                print('No headset found. Triggering refresh scan...')
+                self.refresh_headset_list()
             elif self.headset_id == '':
                 # set first headset is default headset
                 self.headset_id = self.headset_list[0]['id']
@@ -331,6 +336,11 @@ class Cortex(Dispatcher):
             self.emit('inject_marker_done', data=result_dic['marker'])
         elif req_id == UPDATE_MARKER_REQUEST_ID:
             self.emit('update_marker_done', data=result_dic['marker'])
+        elif req_id == REFRESH_HEADSET_LIST_ID:
+            # controlDevice("refresh") acknowledged – headset scan is running.
+            # HEADSET_SCANNING_FINISHED warning will fire when the scan completes.
+            if self.debug:
+                print('refresh headset list acknowledged')
         else:
             print('No handling for response of request ' + str(req_id))
 

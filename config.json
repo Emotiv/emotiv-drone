@@ -1,6 +1,6 @@
 {
     "device_id": "",
-    "profile_name": "gio",
+    "profile_name": "giovani",
     "simulate": false,
     "fix_indices": false,
     "sensitivity": 0.5,
@@ -13,25 +13,25 @@
     "mental_mappings": [
         {
             "command": "push",
-            "action": "TakeOff",
+            "action": "MoveForward",
             "threshold": 0.5,
             "auto_release": 0
         },
         {
             "command": "pull",
-            "action": "Land",
+            "action": "None",
             "threshold": 0.5,
             "auto_release": 0
         },
         {
             "command": "drop",
-            "action": "EmergencyStop",
+            "action": "None",
             "threshold": 0.5,
             "auto_release": 0
         },
         {
             "command": "lift",
-            "action": "FlipForward",
+            "action": "None",
             "threshold": 0.5,
             "auto_release": 0
         }
