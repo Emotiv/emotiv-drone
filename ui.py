@@ -85,6 +85,7 @@ class VideoThread(QThread):
         super().__init__()
         self.tello = tello
         self._running = False
+        self._av_container = None  # Direct PyAV container for color-correct decoding
 
     def run(self):
         self._running = True
@@ -96,12 +97,64 @@ class VideoThread(QThread):
                 self.status_update.emit(f"Camera error: {e}")
                 return
 
+            # Open a direct PyAV container so we control the YUV→RGB conversion
+            # instead of relying on djitellopy's to_image() which ignores VUI metadata.
+            try:
+                import av as _av
+                udp_addr = self.tello.get_udp_video_address()
+                # Use low-delay flags to prevent FFmpeg from buffering frames
+                opts = {"fflags": "nobuffer", "flags": "low_delay"}
+                self._av_container = _av.open(udp_addr, timeout=(10, None), options=opts)
+                self.status_update.emit("PyAV direct decode active (color-corrected)")
+            except Exception as e:
+                self._av_container = None
+                self.status_update.emit(f"PyAV direct open failed, using fallback: {e}")
+
+        if self._av_container:
+            self._run_pyav_decode()
+        else:
+            self._run_fallback_decode()
+
+    def _run_pyav_decode(self):
+        """Decode via PyAV with explicit BT.709 / limited-range color conversion."""
+        import av as _av
+
+        try:
+            for frame in self._av_container.decode(video=0):
+                if not self._running:
+                    break
+
+                # Use to_ndarray with explicit format to force correct colorspace.
+                # The Tello H.264 stream uses YUV420p; we convert to RGB24 here.
+                # PyAV's reformatter applies the correct color matrix when we
+                # set src_color_range and dst_color_range on the frame.
+                frame.colorspace = _av.video.reformatter.Colorspace.ITU709
+                rgb_frame = frame.to_ndarray(format='rgb24')
+
+                h, w, ch = rgb_frame.shape
+                # Apply limited-range (16-235) → full-range (0-255) stretch
+                # to fix crushed blacks and washed-out highlights
+                rgb_frame = self._stretch_limited_to_full(rgb_frame)
+                img = QImage(rgb_frame.data, w, h, ch * w, QImage.Format.Format_RGB888)
+                self.frame_ready.emit(img)
+                
+                # NOTE: No time.sleep() here! This is an iterator over a live stream.
+                # Sleeping here causes the decode buffer to back up, creating massive lag.
+                
+        except Exception as e:
+            print(f"[VideoThread] PyAV decode error, switching to fallback: {e}")
+            self._av_container = None
+            self._run_fallback_decode()
+
+    def _run_fallback_decode(self):
+        """Fallback: use djitellopy's built-in frame reader (to_image → RGB already)."""
         while self._running:
             if self.tello:
                 try:
                     frame = self.tello.get_frame_read().frame
                     if frame is not None:
-                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        # djitellopy's to_image() already returns RGB via PIL,
+                        # so do NOT apply cv2.cvtColor(BGR2RGB) — that swaps R↔B.
                         h, w, ch = frame.shape
                         img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888)
                         self.frame_ready.emit(img)
@@ -113,6 +166,19 @@ class VideoThread(QThread):
                 img = QImage(frame.data, w, h, ch * w, QImage.Format.Format_RGB888)
                 self.frame_ready.emit(img)
             time.sleep(0.033)
+
+    @staticmethod
+    def _stretch_limited_to_full(frame: np.ndarray) -> np.ndarray:
+        """Rescale pixel values from limited range (16-235) to full range (0-255).
+        
+        H.264 streams typically use 'tv' / limited range. If the decoder outputs
+        values in limited range but the display expects full range, blacks look
+        gray and colors appear washed out. This stretches the range correctly.
+        """
+        # (x - 16) * 255 / (235 - 16), clamped to [0, 255]
+        f = frame.astype(np.float32)
+        f = (f - 16.0) * (255.0 / 219.0)
+        return np.clip(f, 0, 255).astype(np.uint8)
 
     def stop(self):
         self._running = False
@@ -401,10 +467,188 @@ class DroneSimulatorWidget(QWidget):
             painter.setFont(font)
             painter.drawText(15, 60, "Press ESC to exit fullscreen")
 
+        # Draw Mental Command Visual Feedback
+        if self.main_app and self.main_app.drone_client and getattr(self.main_app.drone_client, 'drone', None):
+            action = getattr(self.main_app.drone_client.drone, 'last_executed_action', None)
+            action_time = getattr(self.main_app.drone_client.drone, 'last_action_time', 0.0)
+            now = time.time()
+            if action and (now - action_time) < 2.0:
+                # Fade out over 2 seconds
+                alpha = int(255 * (1.0 - (now - action_time) / 2.0))
+                if alpha > 0:
+                    text = f"🧠 MENTAL COMMAND: {action.upper()}"
+                    font.setPointSize(24)
+                    font.setBold(True)
+                    painter.setFont(font)
+                    metrics = painter.fontMetrics()
+                    tw = metrics.horizontalAdvance(text)
+                    th = metrics.capHeight()
+                    
+                    # Draw glowing background
+                    bx = self.width() // 2 - tw // 2 - 20
+                    by = 20
+                    bw = tw + 40
+                    bh = th + 20
+                    
+                    bg_color = QColor(88, 166, 255, alpha // 2)
+                    painter.setBrush(bg_color)
+                    painter.setPen(QPen(QColor(88, 166, 255, alpha), 2))
+                    painter.drawRoundedRect(bx, by, bw, bh, 8, 8)
+                    
+                    # Draw text
+                    painter.setPen(QColor(255, 255, 255, alpha))
+                    painter.drawText(bx + 20, by + bh - 10, text)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             if self.main_app:
                 self.main_app.toggle_fullscreen()
+
+
+class FullscreenHUDWidget(QWidget):
+    """Fullscreen Camera HUD with Flight Controller Overlays"""
+    def __init__(self, main_app=None, parent=None):
+        super().__init__(parent)
+        self.main_app = main_app
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.latest_frame = QImage()
+
+    def update_frame(self, img: QImage):
+        self.latest_frame = img
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        w = self.width()
+        h = self.height()
+        cx = w // 2
+        cy = h // 2
+
+        # 1. Draw Camera Feed
+        if not self.latest_frame.isNull():
+            scaled = self.latest_frame.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+            
+            # Center the image
+            draw_x = (w - scaled.width()) // 2
+            draw_y = (h - scaled.height()) // 2
+            painter.drawImage(draw_x, draw_y, scaled)
+        else:
+            painter.fillRect(self.rect(), QColor(0, 0, 0))
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "NO CAMERA SIGNAL")
+
+        # 2. Draw HUD Elements
+        painter.setPen(QPen(QColor(0, 255, 0, 200), 2))
+        
+        # Crosshair
+        painter.drawLine(cx - 20, cy, cx - 5, cy)
+        painter.drawLine(cx + 5, cy, cx + 20, cy)
+        painter.drawLine(cx, cy - 20, cx, cy - 5)
+        painter.drawLine(cx, cy + 5, cx, cy + 20)
+        painter.drawPoint(cx, cy)
+
+        # Get telemetry
+        lr, fb, ud, yaw = 0, 0, 0, 0
+        batt, alt, temp = 0, 0, 0
+        action, action_time = None, 0.0
+        now = time.time()
+
+        if self.main_app:
+            if self.main_app.drone_client and self.main_app.drone_client.drone:
+                lr, fb, ud, yaw = self.main_app.drone_client.drone.get_rc_values()
+                action = getattr(self.main_app.drone_client.drone, 'last_executed_action', None)
+                action_time = getattr(self.main_app.drone_client.drone, 'last_action_time', 0.0)
+            if self.main_app.tello:
+                try:
+                    batt = self.main_app.tello.get_battery()
+                    alt = self.main_app.tello.get_height()
+                    temp = self.main_app.tello.get_temperature()
+                except:
+                    pass
+
+        # Font setup
+        font = painter.font()
+        font.setFamily("Courier")
+        font.setPointSize(14)
+        font.setBold(True)
+        painter.setFont(font)
+
+        # Telemetry Text
+        painter.drawText(20, 40, f"PWR: {batt}%")
+        painter.drawText(20, 65, f"ALT: {alt} cm")
+        painter.drawText(20, 90, f"TMP: {temp} C")
+
+        # RC Bars (Left side = UD/YAW, Right side = FB/LR)
+        def draw_bar(x, y, val, label, is_horizontal=False):
+            painter.setPen(QColor(0, 255, 0, 150))
+            if is_horizontal:
+                painter.drawLine(x - 50, y, x + 50, y)
+                painter.drawLine(x, y - 5, x, y + 5)
+                # Fill
+                if val != 0:
+                    bx = x if val > 0 else x + int(val / 2.0)
+                    bw = abs(int(val / 2.0))
+                    painter.fillRect(bx, y - 2, bw, 4, QColor(0, 255, 0, 200))
+            else:
+                painter.drawLine(x, y - 50, x, y + 50)
+                painter.drawLine(x - 5, y, x + 5, y)
+                if val != 0:
+                    # Invert Y so positive is up
+                    by = y - int(val / 2.0) if val > 0 else y
+                    bh = abs(int(val / 2.0))
+                    painter.fillRect(x - 2, by, 4, bh, QColor(0, 255, 0, 200))
+            painter.drawText(x - 20, y + 70 if not is_horizontal else y + 25, label)
+
+        draw_bar(50, cy, ud, "THR")
+        draw_bar(w - 50, cy, fb, "PIT")
+        draw_bar(cx - 150, h - 50, yaw, "YAW", True)
+        draw_bar(cx + 150, h - 50, lr, "ROL", True)
+
+        # Horizon Line (Pitch/Roll estimate from RC inputs)
+        # Note: Tello doesn't provide live IMU roll/pitch via SDK, so we estimate it for the HUD
+        sim_roll = math.radians(-lr * 0.3)
+        sim_pitch = fb * 0.3
+        
+        hx1 = -150
+        hx2 = 150
+        hy1 = sim_pitch
+        hy2 = sim_pitch
+        
+        # Rotate by roll
+        rx1 = cx + hx1 * math.cos(sim_roll) - hy1 * math.sin(sim_roll)
+        ry1 = cy + hx1 * math.sin(sim_roll) + hy1 * math.cos(sim_roll)
+        rx2 = cx + hx2 * math.cos(sim_roll) - hy2 * math.sin(sim_roll)
+        ry2 = cy + hx2 * math.sin(sim_roll) + hy2 * math.cos(sim_roll)
+        
+        painter.setPen(QPen(QColor(0, 255, 0, 200), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(int(rx1), int(ry1), int(rx2), int(ry2))
+
+        # Mental Command Banner
+        if action and (now - action_time) < 2.0:
+            alpha = int(255 * (1.0 - (now - action_time) / 2.0))
+            if alpha > 0:
+                text = f"*** {action.upper()} ***"
+                font.setPointSize(20)
+                painter.setFont(font)
+                metrics = painter.fontMetrics()
+                tw = metrics.horizontalAdvance(text)
+                
+                painter.setPen(QColor(255, 0, 0, alpha))
+                painter.drawText(cx - tw // 2, 60, text)
+                
+        # ESC prompt
+        painter.setPen(QColor(255, 255, 255, 100))
+        font.setPointSize(10)
+        painter.setFont(font)
+        painter.drawText(w - 150, 30, "ESC TO EXIT")
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            if self.main_app:
+                self.main_app.close_fullscreen_hud()
+            self.close()
 
 
 class TelloControllerApp(QMainWindow):
@@ -479,7 +723,7 @@ class TelloControllerApp(QMainWindow):
         self.client_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
         c_layout.addWidget(self.client_secret_input)
 
-        # ── Profile display (auto-selected after authorization) ──
+        # ── Profile selection (user picks from dropdown after authorization) ──
         profile_hdr = QHBoxLayout()
         profile_hdr.addWidget(QLabel("Training Profile:"))
         profile_hdr.addStretch()
@@ -491,19 +735,29 @@ class TelloControllerApp(QMainWindow):
         profile_hdr.addWidget(self.refresh_profiles_btn)
         c_layout.addLayout(profile_hdr)
 
-        self.profile_display_lbl = QLabel("— connect to load profiles —")
-        self.profile_display_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.profile_display_lbl.setStyleSheet(
-            "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
-            "padding: 8px 12px; color: #8b949e; font-size: 14px;"
+        self.profile_combo = QComboBox()
+        self.profile_combo.addItem("— connect to load profiles —")
+        self.profile_combo.setEnabled(False)
+        self.profile_combo.setStyleSheet(
+            "QComboBox { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
+            "padding: 8px 12px; color: #8b949e; font-size: 14px; }"
+            "QComboBox:enabled { color: #e6edf3; }"
+            "QComboBox QAbstractItemView { background-color: #161b22; color: #e6edf3;"
+            "selection-background-color: #1f6feb; border: 1px solid #30363d; }"
         )
-        c_layout.addWidget(self.profile_display_lbl)
+        c_layout.addWidget(self.profile_combo)
 
-        self.profile_auto_lbl = QLabel("First profile will be auto-selected from your training data.")
-        self.profile_auto_lbl.setStyleSheet(
+        self.load_profile_btn = QPushButton("🧠 Load Selected Profile")
+        self.load_profile_btn.setObjectName("primaryBtn")
+        self.load_profile_btn.setEnabled(False)
+        self.load_profile_btn.clicked.connect(self._load_selected_profile)
+        c_layout.addWidget(self.load_profile_btn)
+
+        self.profile_status_lbl = QLabel("Select a training profile after connecting.")
+        self.profile_status_lbl.setStyleSheet(
             "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;"
         )
-        c_layout.addWidget(self.profile_auto_lbl)
+        c_layout.addWidget(self.profile_status_lbl)
 
         self.simulate_cb = QCheckBox("Simulation Mode (Test UI without headset)")
         c_layout.addWidget(self.simulate_cb)
@@ -698,12 +952,38 @@ class TelloControllerApp(QMainWindow):
         root.addLayout(left, stretch=3)
 
         right = QVBoxLayout()
-        top_bar = QHBoxLayout()
+        top_bar = QVBoxLayout()
+        status_row = QHBoxLayout()
         self.dash_drone_lbl = QLabel("🟢 Drone: Connected"); self.dash_drone_lbl.setObjectName("statusBadge")
         self.dash_bci_lbl = QLabel("🟢 BCI: Active"); self.dash_bci_lbl.setObjectName("statusBadge")
-        top_bar.addWidget(self.dash_drone_lbl); top_bar.addWidget(self.dash_bci_lbl)
-        top_bar.addStretch()
+        status_row.addWidget(self.dash_drone_lbl); status_row.addWidget(self.dash_bci_lbl)
+        status_row.addStretch()
+        top_bar.addLayout(status_row)
+        
+        # MC Indicator
+        self.dash_mc_lbl = QLabel("🧠 MC: None")
+        self.dash_mc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.dash_mc_lbl.setStyleSheet(
+            "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
+            "padding: 8px 12px; color: #8b949e; font-size: 14px; font-weight: bold;"
+        )
+        top_bar.addWidget(self.dash_mc_lbl)
         right.addLayout(top_bar)
+
+        # Action Buttons
+        act_group = QGroupBox("System")
+        act_layout = QVBoxLayout()
+        self.hud_btn = QPushButton("📺 Fullscreen HUD")
+        self.hud_btn.setObjectName("blueBtn")
+        self.hud_btn.clicked.connect(self.open_fullscreen_hud)
+        act_layout.addWidget(self.hud_btn)
+        
+        self.disconnect_btn = QPushButton("🔌 Disconnect & Quit")
+        self.disconnect_btn.setObjectName("dangerBtn")
+        self.disconnect_btn.clicked.connect(self._disconnect_and_quit)
+        act_layout.addWidget(self.disconnect_btn)
+        act_group.setLayout(act_layout)
+        right.addWidget(act_group)
 
         term_group = QGroupBox("📟 Log")
         term_layout = QVBoxLayout()
@@ -754,31 +1034,68 @@ class TelloControllerApp(QMainWindow):
         self.profiles_signal.emit(profiles)
 
     def _populate_profiles(self, profiles: list):
-        """Show the auto-selected (first) profile name in the display label."""
+        """Populate the profile dropdown so the user can pick which one to load."""
         self.refresh_profiles_btn.setEnabled(True)
+        self.profile_combo.clear()
+
         if not profiles:
-            self.profile_display_lbl.setText("⚠️ No profiles found")
-            self.profile_display_lbl.setStyleSheet(
-                "background-color: #1f0e0e; border: 1px solid #f85149; border-radius: 6px;"
-                "padding: 8px 12px; color: #f85149; font-size: 14px;"
-            )
-            self.profile_auto_lbl.setText(
+            self.profile_combo.addItem("⚠️ No profiles found")
+            self.profile_combo.setEnabled(False)
+            self.load_profile_btn.setEnabled(False)
+            self.profile_status_lbl.setText(
                 "No training profiles found. Create one in EMOTIV Launcher."
+            )
+            self.profile_status_lbl.setStyleSheet(
+                "color: #f85149; font-size: 11px; font-style: italic; padding: 0 2px;"
             )
             return
 
-        first = profiles[0]
+        for p in profiles:
+            self.profile_combo.addItem(f"🧠  {p}", userData=p)
+
+        self.profile_combo.setEnabled(True)
+        self.load_profile_btn.setEnabled(True)
+
+        # Pre-select the profile from config if it exists in the list
+        saved_profile = self.config.get("profile_name", "")
+        if saved_profile:
+            for i in range(self.profile_combo.count()):
+                if self.profile_combo.itemData(i) == saved_profile:
+                    self.profile_combo.setCurrentIndex(i)
+                    break
+
         count = len(profiles)
-        self.profile_display_lbl.setText(f"🧠  {first}")
-        self.profile_display_lbl.setStyleSheet(
-            "background-color: #0d1a2d; border: 1px solid #58a6ff; border-radius: 6px;"
-            "padding: 8px 12px; color: #58a6ff; font-size: 14px; font-weight: bold;"
+        self.profile_status_lbl.setText(
+            f"{count} profile{'s' if count != 1 else ''} available — select one and click Load."
         )
-        self.profile_auto_lbl.setText(
-            f"Auto-selected • 1 of {count} profile{'s' if count != 1 else ''} on your account"
+        self.profile_status_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;"
         )
-        self.config["profile_name"] = first
-        self.log(f"Auto-selected profile '{first}' ({count} profile(s) available).")
+        self.log(f"{count} profile(s) available. Please select one to load.")
+
+    def _load_selected_profile(self):
+        """Load the profile the user selected in the dropdown."""
+        idx = self.profile_combo.currentIndex()
+        profile_name = self.profile_combo.itemData(idx)
+        if not profile_name:
+            self.log("No valid profile selected.")
+            return
+
+        self.load_profile_btn.setEnabled(False)
+        self.load_profile_btn.setText("⏳ Loading...")
+        self.config["profile_name"] = profile_name
+        self.log(f"Loading profile '{profile_name}'...")
+
+        if self.drone_client:
+            threading.Thread(
+                target=self.drone_client.load_profile,
+                args=(profile_name,),
+                daemon=True
+            ).start()
+        else:
+            self.log("Error: BCI not connected. Connect first, then load a profile.")
+            self.load_profile_btn.setEnabled(True)
+            self.load_profile_btn.setText("🧠 Load Selected Profile")
 
     def _refresh_profiles(self):
         """Re-send queryProfile to Cortex (available once authorized)."""
@@ -803,6 +1120,13 @@ class TelloControllerApp(QMainWindow):
             self._hide_access_pending_ui()
             self.p0_next_btn.setEnabled(True)
             self._override_action_for_test()
+            # Re-enable the Load button so the user can switch profiles
+            self.load_profile_btn.setEnabled(True)
+            self.load_profile_btn.setText("🧠 Load Selected Profile")
+            self.profile_status_lbl.setText(f"✅ {msg}")
+            self.profile_status_lbl.setStyleSheet(
+                "color: #3fb950; font-size: 11px; font-style: italic; padding: 0 2px;"
+            )
             return
 
         self.bci_conn_status_lbl.setText(f"🟡 {status}")
@@ -811,18 +1135,18 @@ class TelloControllerApp(QMainWindow):
             self.bci_conn_status_lbl.setStyleSheet("background-color: #238636;")
             self._hide_access_pending_ui()
             self._override_action_for_test()
-            # Enable Next for simulation or when no profile was chosen
+            # Session is active — user can now select and load a profile.
+            # Enable Next for simulation; otherwise wait for profile load.
             is_sim = self.simulate_cb.isChecked()
-            no_profile = not bool(self.config.get("profile_name", ""))
-            if is_sim or no_profile:
+            if is_sim:
                 self.p0_next_btn.setEnabled(True)
-            else:
-                # Profile is selected — wait for PROFILE_LOADED before enabling Next
-                self.bci_conn_status_lbl.setText("🟡 Session Active — Loading profile...")
         elif "Error" in status or "error" in status.lower() or "finished" in status.lower() or "warning" in status.lower() or "failed" in status.lower():
             self.bci_conn_status_lbl.setText("🔴 BCI: Scan Finished / Not Found")
             self.connect_bci_btn.setText("Retry Connection")
             self.connect_bci_btn.setEnabled(True)
+            # Re-enable load button in case of profile load error
+            self.load_profile_btn.setEnabled(True)
+            self.load_profile_btn.setText("🧠 Load Selected Profile")
 
     def _show_access_pending_ui(self, message: str):
         """Show a prominent inline banner asking the user to approve via EMOTIV Launcher."""
@@ -1008,6 +1332,23 @@ class TelloControllerApp(QMainWindow):
                     self.drone_sim.update_rc(lr, fb, ud, yaw)
                     self.test_yaw_bar.setValue(yaw)
                     self.test_fb_bar.setValue(fb)
+                
+                # Update MC Dashboard Indicator
+                action = getattr(self.drone_client.drone, 'last_executed_action', None)
+                action_time = getattr(self.drone_client.drone, 'last_action_time', 0.0)
+                now = time.time()
+                if action and (now - action_time) < 2.0:
+                    self.dash_mc_lbl.setText(f"🧠 MC: {action}")
+                    self.dash_mc_lbl.setStyleSheet(
+                        "background-color: #1f6feb; border: 1px solid #58a6ff; border-radius: 6px;"
+                        "padding: 8px 12px; color: #ffffff; font-size: 14px; font-weight: bold;"
+                    )
+                else:
+                    self.dash_mc_lbl.setText("🧠 MC: None")
+                    self.dash_mc_lbl.setStyleSheet(
+                        "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
+                        "padding: 8px 12px; color: #8b949e; font-size: 14px; font-weight: bold;"
+                    )
             
             mot_str = self.drone_client.latest_raw_mot[:120] + "..." if len(self.drone_client.latest_raw_mot) > 120 else self.drone_client.latest_raw_mot
             self.raw_mot_lbl.setText(f"MOT: {mot_str}")
@@ -1022,9 +1363,66 @@ class TelloControllerApp(QMainWindow):
             except Exception:
                 pass
 
+    def _disconnect_and_quit(self):
+        """Clean up connection and return to setup page."""
+        self.log("Disconnecting...")
+        if self.video_thread:
+            self.video_thread.stop()
+            self.video_thread.wait(1000)
+            self.video_thread = None
+        
+        if self.drone_client:
+            if getattr(self.drone_client, 'drone', None):
+                self.drone_client.drone.stop_movement()
+                self.drone_client.drone.is_flying = False
+            self.drone_client.running = False
+            if hasattr(self.drone_client, 'c'):
+                try: self.drone_client.c.close()
+                except: pass
+            
+        if self.tello:
+            threading.Thread(target=self._safe_land_and_end, daemon=True).start()
+
+        self.stacked_widget.setCurrentIndex(0)
+        self.log("Disconnected and returned to setup.")
+
+    def _safe_land_and_end(self):
+        try:
+            self.tello.land()
+        except:
+            pass
+        try:
+            self.tello.end()
+        except:
+            pass
+        self.tello = None
+
     def update_camera(self, img: QImage):
         scaled = img.scaled(self.camera_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.camera_label.setPixmap(QPixmap.fromImage(scaled))
+        
+        if hasattr(self, 'hud_widget') and self.hud_widget is not None:
+            self.hud_widget.update_frame(img)
+
+    def open_fullscreen_hud(self):
+        if not hasattr(self, 'hud_widget') or self.hud_widget is None:
+            self.hud_widget = FullscreenHUDWidget(main_app=self)
+            # Setup an update timer for the HUD telemetry elements
+            self.hud_timer = QTimer(self)
+            self.hud_timer.timeout.connect(self.hud_widget.update)
+            self.hud_timer.start(50)  # 20 FPS refresh for the HUD overlays
+
+        self.hud_widget.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.hud_widget.showFullScreen()
+        self.hud_widget.setFocus()
+        self.log("Opened Fullscreen HUD.")
+
+    def close_fullscreen_hud(self):
+        if hasattr(self, 'hud_widget') and self.hud_widget is not None:
+            self.hud_timer.stop()
+            self.hud_widget.close()
+            self.hud_widget = None
+        self.log("Closed Fullscreen HUD.")
 
     # ─── Flight actions ───
     def takeoff(self):
@@ -1038,6 +1436,8 @@ class TelloControllerApp(QMainWindow):
     def _safe_takeoff(self):
         try:
             self.tello.takeoff()
+            # Default takeoff height is ~1.2m. The user wants ~1.6m.
+            self.tello.move_up(40)
             if self.drone_client:
                 self.drone_client.drone.is_flying = True
                 self.drone_client.drone.start_rc_loop()

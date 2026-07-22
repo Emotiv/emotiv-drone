@@ -118,10 +118,8 @@ class TelloDroneClient:
         # Subscribe to device telemetry along with motion and mental
         self.c.sub_request(['mot', 'com', 'dev'])
         
-        # Load the selected training profile if one is set
-        if getattr(self.c, 'profile_name', ''):
-            print(f'Loading profile: {self.c.profile_name}', flush=True)
-            self.c.setup_profile(self.c.profile_name, 'load')
+        # Profile loading is now user-initiated via the UI dropdown.
+        # We no longer auto-load here.
         
         # We track subscriptions to ensure both mot and com are active
         self._subscribed_streams = set()
@@ -257,16 +255,27 @@ class TelloDroneClient:
 
     def on_query_profile_done(self, *args, **kwargs):
         """Fired when queryProfile returns the list of available training profiles.
-        Automatically picks the first profile for use after session creation.
+        Passes the list to the UI so the user can choose which profile to load.
         """
         profiles = kwargs.get('data', [])
         print(f"[query_profile_done] {len(profiles)} profile(s) found", flush=True)
-        if profiles:
-            first = profiles[0]
-            self.c.set_wanted_profile(first)
-            print(f"[query_profile_done] Auto-selected first profile: '{first}'", flush=True)
         if self.profiles_callback:
             self.profiles_callback(profiles)
+
+    def load_profile(self, profile_name: str):
+        """Load a specific training profile by name (called from the UI)."""
+        if not profile_name:
+            return
+        self.c.set_wanted_profile(profile_name)
+        print(f"[load_profile] Loading profile: '{profile_name}'", flush=True)
+        if self.bci_status_callback:
+            self.bci_status_callback(f"Loading profile '{profile_name}'...")
+        try:
+            self.c.setup_profile(profile_name, 'load')
+        except Exception as e:
+            print(f"[load_profile] Error: {e}", flush=True)
+            if self.bci_status_callback:
+                self.bci_status_callback(f"Profile load error: {e}")
 
     def on_load_unload_profile_done(self, *args, **kwargs):
         """Fired when setupProfile 'load' completes successfully."""

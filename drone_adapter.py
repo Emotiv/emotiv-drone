@@ -45,6 +45,10 @@ class DroneAdapter:
         self._mental_move_action = None
         self._mental_move_speed = 0.0
         self._mental_move_expiry = 0.0
+        
+        # UI Feedback Tracking
+        self.last_executed_action = None
+        self.last_action_time = 0.0
 
     # ──────────────────────────────────────────────
     # RC command loop – Tello needs constant updates
@@ -130,6 +134,9 @@ class DroneAdapter:
         if action == "None":
             return
 
+        self.last_executed_action = action
+        self.last_action_time = time.time()
+
         # Duration to hold mental movements
         move_duration = auto_release_time if auto_release_time > 0 else 1.0
 
@@ -137,7 +144,9 @@ class DroneAdapter:
             if action == "TakeOff":
                 if not self.is_flying:
                     print("[DroneAdapter] Taking off...")
-                    if self.tello: self.tello.takeoff()
+                    if self.tello: 
+                        self.tello.takeoff()
+                        self.tello.move_up(40)  # Ascend to ~1.6m
                     self.is_flying = True
                     self.start_rc_loop()
                 else:
