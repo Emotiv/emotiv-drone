@@ -1,10 +1,15 @@
 import json
 import os
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-CREDENTIALS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
+from app_paths import user_data_dir
+
+CONFIG_FILE = os.path.join(user_data_dir(), "config.json")
+CREDENTIALS_FILE = os.path.join(user_data_dir(), "credentials.json")
 
 DEFAULT_CONFIG = {
+    # UI language: "en" or "zh"
+    "language": "en",
+
     # Emotiv Cortex API
     "client_id": "YOUR_CLIENT_ID",
     "client_secret": "YOUR_CLIENT_SECRET",

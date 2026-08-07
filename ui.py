@@ -22,6 +22,9 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject, QRectF
 from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette, QPainter, QPen, QBrush
 import math
 from config_manager import ConfigManager
+from app_paths import resource_path
+import i18n
+from i18n import t, bind
 
 class EmittingStream(QObject):
     textWritten = pyqtSignal(str)
@@ -92,9 +95,9 @@ class VideoThread(QThread):
         if self.tello:
             try:
                 self.tello.streamon()
-                self.status_update.emit("Camera stream started")
+                self.status_update.emit(t("log.camera_started"))
             except Exception as e:
-                self.status_update.emit(f"Camera error: {e}")
+                self.status_update.emit(t("log.camera_error", detail=e))
                 return
 
             # Open a direct PyAV container so we control the YUV→RGB conversion
@@ -105,10 +108,10 @@ class VideoThread(QThread):
                 # Use low-delay flags to prevent FFmpeg from buffering frames
                 opts = {"fflags": "nobuffer", "flags": "low_delay"}
                 self._av_container = _av.open(udp_addr, timeout=(10, None), options=opts)
-                self.status_update.emit("PyAV direct decode active (color-corrected)")
+                self.status_update.emit(t("log.pyav_active"))
             except Exception as e:
                 self._av_container = None
-                self.status_update.emit(f"PyAV direct open failed, using fallback: {e}")
+                self.status_update.emit(t("log.pyav_failed", detail=e))
 
         if self._av_container:
             self._run_pyav_decode()
@@ -218,10 +221,8 @@ class DroneSimulatorWidget(QWidget):
         self.coin_counter = 1
         self.spawn_coin()
         
-        import os
         from PyQt6.QtGui import QPixmap
-        bg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bg.png")
-        self.bg_image = QPixmap(bg_path)
+        self.bg_image = QPixmap(resource_path("bg.png"))
 
     def spawn_coin(self):
         import random
@@ -458,14 +459,14 @@ class DroneSimulatorWidget(QWidget):
         font.setPointSize(16)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(15, 30, f"🏆 SCORE: {self.score}")
-        
+        painter.drawText(15, 30, t("sim.score", score=self.score))
+
         # Draw ESC prompt if fullscreen
         if self.isFullScreen():
             painter.setPen(QColor("#ffffff"))
             font.setPointSize(12)
             painter.setFont(font)
-            painter.drawText(15, 60, "Press ESC to exit fullscreen")
+            painter.drawText(15, 60, t("sim.esc_hint"))
 
         # Draw Mental Command Visual Feedback
         if self.main_app and self.main_app.drone_client and getattr(self.main_app.drone_client, 'drone', None):
@@ -476,7 +477,7 @@ class DroneSimulatorWidget(QWidget):
                 # Fade out over 2 seconds
                 alpha = int(255 * (1.0 - (now - action_time) / 2.0))
                 if alpha > 0:
-                    text = f"🧠 MENTAL COMMAND: {action.upper()}"
+                    text = t("sim.mental_command", action=action.upper())
                     font.setPointSize(24)
                     font.setBold(True)
                     painter.setFont(font)
@@ -537,7 +538,7 @@ class FullscreenHUDWidget(QWidget):
         else:
             painter.fillRect(self.rect(), QColor(0, 0, 0))
             painter.setPen(QColor(255, 255, 255))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "NO CAMERA SIGNAL")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, t("hud.no_signal"))
 
         # 2. Draw HUD Elements
         painter.setPen(QPen(QColor(0, 255, 0, 200), 2))
@@ -568,9 +569,11 @@ class FullscreenHUDWidget(QWidget):
                 except:
                     pass
 
-        # Font setup
+        # Font setup. Courier has no CJK glyphs, so only force it for Latin text —
+        # otherwise the translated overlays would render as boxes.
         font = painter.font()
-        font.setFamily("Courier")
+        if i18n.get_lang() == "en":
+            font.setFamily("Courier")
         font.setPointSize(14)
         font.setBold(True)
         painter.setFont(font)
@@ -642,7 +645,7 @@ class FullscreenHUDWidget(QWidget):
         painter.setPen(QColor(255, 255, 255, 100))
         font.setPointSize(10)
         painter.setFont(font)
-        painter.drawText(w - 150, 30, "ESC TO EXIT")
+        painter.drawText(w - 150, 30, t("hud.esc"))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -664,9 +667,12 @@ class TelloControllerApp(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tello BCI Controller")
         self.resize(1100, 820)
         self.config = ConfigManager.load_config()
+        # Language has to be settled before any widget is built, so the first
+        # bind() call already produces text in the right language.
+        i18n.set_lang(self.config.get("language", "en"))
+        bind(self, "app.title", "setWindowTitle")
         self.tello = None
         self.drone_client = None
         self.video_thread = None
@@ -698,7 +704,23 @@ class TelloControllerApp(QMainWindow):
 
         header = QHBoxLayout()
         header.addStretch()
-        self.settings_btn = QPushButton("⚙ Configurations")
+
+        self.lang_lbl = QLabel()
+        bind(self.lang_lbl, "header.language")
+        header.addWidget(self.lang_lbl)
+
+        self.lang_combo = QComboBox()
+        self.lang_combo.setFixedWidth(120)
+        for code, name in i18n.available_languages():
+            self.lang_combo.addItem(name, userData=code)
+        current = self.lang_combo.findData(i18n.get_lang())
+        if current >= 0:
+            self.lang_combo.setCurrentIndex(current)
+        self.lang_combo.currentIndexChanged.connect(self._on_language_changed)
+        header.addWidget(self.lang_combo)
+
+        self.settings_btn = QPushButton()
+        bind(self.settings_btn, "btn.settings")
         self.settings_btn.setObjectName("blueBtn")
         self.settings_btn.clicked.connect(self.show_settings)
         header.addWidget(self.settings_btn)
@@ -720,6 +742,29 @@ class TelloControllerApp(QMainWindow):
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
 
+    def _on_language_changed(self, index: int):
+        code = self.lang_combo.itemData(index)
+        if not code or code == i18n.get_lang():
+            return
+        i18n.set_lang(code)
+        self.config["language"] = code
+        ConfigManager.save_config(self.config)
+        i18n.retranslate()
+        self._retranslate_dynamic()
+
+    def _retranslate_dynamic(self):
+        """Redo the bits that bind() cannot reach: combo entries and repaints."""
+        # A combo showing a placeholder holds no real data, so its single item
+        # is safe to rewrite. _placeholder_key says which message is up.
+        for combo in (self.headset_combo, self.profile_combo):
+            key = getattr(combo, "_placeholder_key", None)
+            if key and combo.count() == 1:
+                combo.setItemText(0, t(key))
+        for widget in (self.drone_sim, self.neutral_sim, self.push_sim):
+            widget.update()
+        if getattr(self, "hud_widget", None) is not None:
+            self.hud_widget.update()
+
     def setup_page_auth(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -728,28 +773,32 @@ class TelloControllerApp(QMainWindow):
         container = QWidget(); container.setFixedWidth(600)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
-        title = QLabel("Step 1: Authenticate with Cortex"); title.setObjectName("titleLabel")
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "auth.title")
         c_layout.addWidget(title)
 
-        auth_group = QGroupBox("Credentials")
+        auth_group = QGroupBox()
+        bind(auth_group, "auth.group", "setTitle")
         auth_layout = QVBoxLayout(auth_group)
-        auth_layout.addWidget(QLabel("Client ID:"))
+        auth_layout.addWidget(bind(QLabel(), "auth.client_id"))
         self.client_id_input = QLineEdit()
         auth_layout.addWidget(self.client_id_input)
-        auth_layout.addWidget(QLabel("Client Secret:"))
+        auth_layout.addWidget(bind(QLabel(), "auth.client_secret"))
         self.client_secret_input = QLineEdit()
         self.client_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
         auth_layout.addWidget(self.client_secret_input)
-        
-        self.simulate_cb = QCheckBox("Simulation Mode (Test UI without headset)")
+
+        self.simulate_cb = QCheckBox()
+        bind(self.simulate_cb, "auth.simulate")
         auth_layout.addWidget(self.simulate_cb)
-        
-        self.connect_bci_btn = QPushButton("Authenticate"); self.connect_bci_btn.setObjectName("blueBtn")
+
+        self.connect_bci_btn = QPushButton(); self.connect_bci_btn.setObjectName("blueBtn")
+        bind(self.connect_bci_btn, "auth.connect")
         self.connect_bci_btn.clicked.connect(self._start_bci)
         auth_layout.addWidget(self.connect_bci_btn)
         c_layout.addWidget(auth_group)
 
-        c_layout.addWidget(QLabel("BCI Connection Logs:"))
+        c_layout.addWidget(bind(QLabel(), "auth.logs"))
         self.bci_log_terminal = QPlainTextEdit()
         self.bci_log_terminal.setReadOnly(True)
         self.bci_log_terminal.setMaximumBlockCount(200)
@@ -767,13 +816,16 @@ class TelloControllerApp(QMainWindow):
         container = QWidget(); container.setFixedWidth(600)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
-        title = QLabel("Step 2: Select Headset"); title.setObjectName("titleLabel")
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "headset.title")
         c_layout.addWidget(title)
 
-        self.headset_group = QGroupBox("Available Headsets")
+        self.headset_group = QGroupBox()
+        bind(self.headset_group, "headset.group", "setTitle")
         headset_layout = QVBoxLayout(self.headset_group)
         self.headset_combo = QComboBox()
-        self.headset_combo.addItem("— awaiting authentication —")
+        self.headset_combo._placeholder_key = "headset.awaiting_auth"
+        self.headset_combo.addItem(t("headset.awaiting_auth"))
         self.headset_combo.setStyleSheet(
             "QComboBox { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
             "padding: 8px 12px; color: #8b949e; font-size: 14px; }"
@@ -783,19 +835,22 @@ class TelloControllerApp(QMainWindow):
         )
         headset_layout.addWidget(self.headset_combo)
         
-        self.connect_headset_btn = QPushButton("Connect Headset")
+        self.connect_headset_btn = QPushButton()
+        bind(self.connect_headset_btn, "headset.connect")
         self.connect_headset_btn.setObjectName("blueBtn")
         self.connect_headset_btn.clicked.connect(self._connect_headset)
         headset_layout.addWidget(self.connect_headset_btn)
-        
-        self.bci_conn_status_lbl = QLabel("🔴 Not Connected")
+
+        self.bci_conn_status_lbl = QLabel()
+        bind(self.bci_conn_status_lbl, "badge.not_connected")
         self.bci_conn_status_lbl.setObjectName("statusBadge")
         self.bci_conn_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         headset_layout.addWidget(self.bci_conn_status_lbl)
         c_layout.addWidget(self.headset_group)
 
         # Back button
-        back_btn = QPushButton("⬅ Back to Auth")
+        back_btn = QPushButton()
+        bind(back_btn, "headset.back")
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
         c_layout.addWidget(back_btn)
 
@@ -810,24 +865,28 @@ class TelloControllerApp(QMainWindow):
         container = QWidget(); container.setFixedWidth(600)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
-        title = QLabel("Step 3: Training Profile"); title.setObjectName("titleLabel")
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "profile.title")
         c_layout.addWidget(title)
 
-        self.profile_group = QGroupBox("Available Profiles")
+        self.profile_group = QGroupBox()
+        bind(self.profile_group, "profile.group", "setTitle")
         profile_layout = QVBoxLayout(self.profile_group)
-        
+
         profile_hdr = QHBoxLayout()
-        profile_hdr.addWidget(QLabel("Profile:"))
+        profile_hdr.addWidget(bind(QLabel(), "profile.label"))
         profile_hdr.addStretch()
-        self.refresh_profiles_btn = QPushButton("🔄 Refresh")
+        self.refresh_profiles_btn = QPushButton()
+        bind(self.refresh_profiles_btn, "profile.refresh")
+        bind(self.refresh_profiles_btn, "profile.refresh.tip", "setToolTip")
         self.refresh_profiles_btn.setFixedWidth(90)
-        self.refresh_profiles_btn.setToolTip("Re-fetch profile list from Cortex")
         self.refresh_profiles_btn.clicked.connect(self._refresh_profiles)
         profile_hdr.addWidget(self.refresh_profiles_btn)
         profile_layout.addLayout(profile_hdr)
 
         self.profile_combo = QComboBox()
-        self.profile_combo.addItem("— connect headset first —")
+        self.profile_combo._placeholder_key = "profile.connect_first"
+        self.profile_combo.addItem(t("profile.connect_first"))
         self.profile_combo.setStyleSheet(
             "QComboBox { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
             "padding: 8px 12px; color: #8b949e; font-size: 14px; }"
@@ -837,12 +896,14 @@ class TelloControllerApp(QMainWindow):
         )
         profile_layout.addWidget(self.profile_combo)
 
-        self.load_profile_btn = QPushButton("🧠 Load Selected Profile")
+        self.load_profile_btn = QPushButton()
+        bind(self.load_profile_btn, "profile.load")
         self.load_profile_btn.setObjectName("primaryBtn")
         self.load_profile_btn.clicked.connect(self._load_selected_profile)
         profile_layout.addWidget(self.load_profile_btn)
 
-        self.profile_status_lbl = QLabel("Select a training profile after connecting.")
+        self.profile_status_lbl = QLabel()
+        bind(self.profile_status_lbl, "profile.hint")
         self.profile_status_lbl.setStyleSheet(
             "color: #8b949e; font-size: 13px; font-style: italic; margin-top: 8px;"
         )
@@ -851,9 +912,10 @@ class TelloControllerApp(QMainWindow):
         # New: Create & Train Profile Section
         train_layout = QHBoxLayout()
         self.new_profile_input = QLineEdit()
-        self.new_profile_input.setPlaceholderText("New Profile Name...")
-        
-        self.train_profile_btn = QPushButton("🧠 Create & Train")
+        bind(self.new_profile_input, "profile.new_placeholder", "setPlaceholderText")
+
+        self.train_profile_btn = QPushButton()
+        bind(self.train_profile_btn, "profile.create_train")
         self.train_profile_btn.setObjectName("primaryBtn")
         self.train_profile_btn.clicked.connect(self._create_and_train_profile)
         
@@ -866,10 +928,12 @@ class TelloControllerApp(QMainWindow):
 
         # ── Next Button & Back Button ──
         btn_row = QHBoxLayout()
-        back_btn = QPushButton("⬅ Back to Headsets")
+        back_btn = QPushButton()
+        bind(back_btn, "profile.back")
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
-        
-        self.p0_next_btn = QPushButton("Next: Test Controls ➔")
+
+        self.p0_next_btn = QPushButton()
+        bind(self.p0_next_btn, "profile.next")
         self.p0_next_btn.setObjectName("primaryBtn")
         self.p0_next_btn.setEnabled(False)
         self.p0_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
@@ -895,17 +959,20 @@ class TelloControllerApp(QMainWindow):
         container = QWidget(); container.setFixedWidth(700)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
-        title = QLabel("EEG Signal Quality Check")
+        title = QLabel()
+        bind(title, "eq.title")
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         c_layout.addWidget(title)
 
-        subtitle = QLabel("Ensure all sensors show good contact quality before training.")
+        subtitle = QLabel()
+        bind(subtitle, "eq.subtitle")
         subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         c_layout.addWidget(subtitle)
 
-        self.eq_overall_lbl = QLabel("Overall Signal: Waiting...")
+        self.eq_overall_lbl = QLabel()
+        bind(self.eq_overall_lbl, "eq.overall_waiting")
         self.eq_overall_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.eq_overall_lbl.setStyleSheet(
             "font-size: 16px; font-weight: bold; color: #e6edf3;"
@@ -913,22 +980,26 @@ class TelloControllerApp(QMainWindow):
         )
         c_layout.addWidget(self.eq_overall_lbl)
 
-        sensor_group = QGroupBox("Sensor Contact Quality")
+        sensor_group = QGroupBox()
+        bind(sensor_group, "eq.group", "setTitle")
         self.eq_sensor_layout = QGridLayout(sensor_group)
         self.eq_sensor_layout.setSpacing(8)
         self.eq_sensor_labels = {}
         c_layout.addWidget(sensor_group)
 
-        self.eq_status_lbl = QLabel("Waiting for sensor data...")
+        self.eq_status_lbl = QLabel()
+        bind(self.eq_status_lbl, "eq.waiting_data")
         self.eq_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #e3a01a; margin-top: 10px;")
         c_layout.addWidget(self.eq_status_lbl)
 
         btn_row = QHBoxLayout()
-        back_btn = QPushButton("⬅ Back to Profiles")
+        back_btn = QPushButton()
+        bind(back_btn, "eq.back")
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
 
-        self.eq_next_btn = QPushButton("Start Training ➔")
+        self.eq_next_btn = QPushButton()
+        bind(self.eq_next_btn, "eq.next")
         self.eq_next_btn.setObjectName("primaryBtn")
         self.eq_next_btn.setEnabled(False)
         self.eq_next_btn.clicked.connect(self._start_training_from_eq)
@@ -968,8 +1039,8 @@ class TelloControllerApp(QMainWindow):
         self.countdown_overlay.raise_()
         
         lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
-        lbl.setText("Get ready...")
-        
+        bind(lbl, "train.get_ready")
+
         if hasattr(self, "countdown_timer") and self.countdown_timer.isActive():
             self.countdown_timer.stop()
             
@@ -987,8 +1058,8 @@ class TelloControllerApp(QMainWindow):
             
             lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
             self.recording_val = 8
-            lbl.setText(f"Recording... {self.recording_val}s remaining")
-            
+            bind(lbl, "train.recording", seconds=self.recording_val)
+
             if hasattr(self, "recording_timer") and self.recording_timer.isActive():
                 self.recording_timer.stop()
                 
@@ -1005,41 +1076,46 @@ class TelloControllerApp(QMainWindow):
         self.recording_val -= 1
         lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
         if self.recording_val > 0:
-            lbl.setText(f"Recording... {self.recording_val}s remaining")
+            bind(lbl, "train.recording", seconds=self.recording_val)
         else:
             self.recording_timer.stop()
-            lbl.setText("Finishing up...")
+            bind(lbl, "train.finishing")
 
     def setup_page_train_neutral(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         
-        title = QLabel("Training: Neutral Baseline")
+        title = QLabel()
+        bind(title, "train.neutral.title")
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        subtitle = QLabel("Relax and keep your mind clear. The drone should stay still.")
+        subtitle = QLabel()
+        bind(subtitle, "train.neutral.subtitle")
         subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
-        
+
         self.neutral_sim = DroneSimulatorWidget(self)
         self.neutral_sim.setMinimumSize(500, 350)
         layout.addWidget(self.neutral_sim, stretch=1)
-        
-        self.neutral_status_lbl = QLabel("Waiting for training to start...")
+
+        self.neutral_status_lbl = QLabel()
+        bind(self.neutral_status_lbl, "train.waiting")
         self.neutral_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.neutral_status_lbl.setStyleSheet("font-size: 16px; color: #e6edf3;")
         layout.addWidget(self.neutral_status_lbl)
         
         btn_layout = QHBoxLayout()
-        self.neutral_accept_btn = QPushButton("Accept")
+        self.neutral_accept_btn = QPushButton()
+        bind(self.neutral_accept_btn, "train.accept")
         self.neutral_accept_btn.setObjectName("primaryBtn")
         self.neutral_accept_btn.clicked.connect(lambda: self._on_training_accept("neutral"))
         self.neutral_accept_btn.hide()
-        
-        self.neutral_reject_btn = QPushButton("Reject (Retry)")
+
+        self.neutral_reject_btn = QPushButton()
+        bind(self.neutral_reject_btn, "train.reject")
         self.neutral_reject_btn.setObjectName("dangerBtn")
         self.neutral_reject_btn.clicked.connect(lambda: self._on_training_reject("neutral"))
         self.neutral_reject_btn.hide()
@@ -1056,12 +1132,14 @@ class TelloControllerApp(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         
-        title = QLabel("Training: Push Command (Forward)")
+        title = QLabel()
+        bind(title, "train.push.title")
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        subtitle = QLabel("Focus on the drone. Imagine pushing it forward with your mind.")
+        subtitle = QLabel()
+        bind(subtitle, "train.push.subtitle")
         subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
@@ -1074,23 +1152,27 @@ class TelloControllerApp(QMainWindow):
         self.push_anim_timer = QTimer()
         self.push_anim_timer.timeout.connect(lambda: self.push_sim.update_rc(0, 10, 0, 0))
         
-        self.push_status_lbl = QLabel("Waiting for training to start...")
+        self.push_status_lbl = QLabel()
+        bind(self.push_status_lbl, "train.waiting")
         self.push_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.push_status_lbl.setStyleSheet("font-size: 16px; color: #e6edf3;")
         layout.addWidget(self.push_status_lbl)
         
         btn_layout = QHBoxLayout()
-        self.push_accept_btn = QPushButton("Accept")
+        self.push_accept_btn = QPushButton()
+        bind(self.push_accept_btn, "train.accept")
         self.push_accept_btn.setObjectName("primaryBtn")
         self.push_accept_btn.clicked.connect(lambda: self._on_training_accept("push"))
         self.push_accept_btn.hide()
-        
-        self.push_reject_btn = QPushButton("Reject (Retry)")
+
+        self.push_reject_btn = QPushButton()
+        bind(self.push_reject_btn, "train.reject")
         self.push_reject_btn.setObjectName("dangerBtn")
         self.push_reject_btn.clicked.connect(lambda: self._on_training_reject("push"))
         self.push_reject_btn.hide()
-        
-        self.push_next_btn = QPushButton("Finish & Go to Test Controls")
+
+        self.push_next_btn = QPushButton()
+        bind(self.push_next_btn, "train.finish")
         self.push_next_btn.setObjectName("primaryBtn")
         self.push_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
         self.push_next_btn.hide()
@@ -1112,23 +1194,28 @@ class TelloControllerApp(QMainWindow):
         container = QWidget(); container.setFixedWidth(700)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(20)
 
-        title = QLabel("Step 2: Test Virtual Flight Controls"); title.setObjectName("titleLabel")
-        subtitle = QLabel("Practice moving your head and thinking commands before flying the real drone.")
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "test.title")
+        subtitle = QLabel()
+        bind(subtitle, "test.subtitle")
         subtitle.setObjectName("subtitleLabel"); subtitle.setWordWrap(True)
         c_layout.addWidget(title); c_layout.addWidget(subtitle)
 
         top_split = QHBoxLayout()
-        
-        state_group = QGroupBox("Virtual Drone State")
+
+        state_group = QGroupBox()
+        bind(state_group, "test.state_group", "setTitle")
         self.state_layout = QVBoxLayout()
-        self.virtual_flight_state_lbl = QLabel("🛫 Status: Landed")
+        self.virtual_flight_state_lbl = QLabel()
+        bind(self.virtual_flight_state_lbl, "test.landed")
         self.virtual_flight_state_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #8b949e;")
         self.state_layout.addWidget(self.virtual_flight_state_lbl)
-        
-        self.last_action_lbl = QLabel("Last Mental Command: None")
+
+        self.last_action_lbl = QLabel()
+        bind(self.last_action_lbl, "test.last_command_none")
         self.last_action_lbl.setStyleSheet("color: #58a6ff;")
         self.state_layout.addWidget(self.last_action_lbl)
-        
+
         self.rc_lbl = QLabel("RC: lr=   0  fb=   0  ud=   0  yaw=   0")
         self.rc_lbl.setStyleSheet("font-family: monospace; font-size: 14px; background: #0d1117; padding: 10px; border-radius: 5px;")
         self.state_layout.addWidget(self.rc_lbl)
@@ -1138,7 +1225,8 @@ class TelloControllerApp(QMainWindow):
         state_group.setLayout(self.state_layout)
         top_split.addWidget(state_group)
 
-        rc_group = QGroupBox("Motion Tracking (RC Channels)")
+        rc_group = QGroupBox()
+        bind(rc_group, "test.rc_group", "setTitle")
         rc_grid = QGridLayout()
         def make_bar():
             b = QProgressBar()
@@ -1146,15 +1234,16 @@ class TelloControllerApp(QMainWindow):
             return b
         self.test_yaw_bar = make_bar()
         self.test_fb_bar = make_bar()
-        rc_grid.addWidget(QLabel("Left/Right (Yaw):"), 0, 0)
+        rc_grid.addWidget(bind(QLabel(), "test.yaw"), 0, 0)
         rc_grid.addWidget(self.test_yaw_bar, 0, 1)
-        rc_grid.addWidget(QLabel("Fwd/Back (Pitch):"), 1, 0)
+        rc_grid.addWidget(bind(QLabel(), "test.pitch"), 1, 0)
         rc_grid.addWidget(self.test_fb_bar, 1, 1)
         rc_group.setLayout(rc_grid)
         top_split.addWidget(rc_group)
         c_layout.addLayout(top_split)
 
-        raw_group = QGroupBox("Raw Stream Data")
+        raw_group = QGroupBox()
+        bind(raw_group, "test.raw_group", "setTitle")
         raw_layout = QVBoxLayout()
         self.raw_mot_lbl = QLabel("MOT: None")
         self.raw_mot_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 11px;")
@@ -1166,14 +1255,16 @@ class TelloControllerApp(QMainWindow):
         c_layout.addWidget(raw_group)
 
         btn_row = QHBoxLayout()
-        back_btn = QPushButton("⬅ Back"); back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
-        
-        fs_btn = QPushButton("📺 Fullscreen")
+        back_btn = bind(QPushButton(), "test.back")
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
+
+        fs_btn = bind(QPushButton(), "test.fullscreen")
         fs_btn.clicked.connect(self.toggle_fullscreen)
-        
-        self.recenter_btn_p1 = QPushButton("🎯 Recenter Headset"); self.recenter_btn_p1.setObjectName("blueBtn")
+
+        self.recenter_btn_p1 = bind(QPushButton(), "test.recenter")
+        self.recenter_btn_p1.setObjectName("blueBtn")
         self.recenter_btn_p1.clicked.connect(self.reset_headset)
-        next_btn = QPushButton("Next: Real Drone Setup ➔"); next_btn.setObjectName("primaryBtn")
+        next_btn = bind(QPushButton(), "test.next"); next_btn.setObjectName("primaryBtn")
         next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(7))
         btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn); btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(next_btn)
         c_layout.addLayout(btn_row)
@@ -1189,25 +1280,27 @@ class TelloControllerApp(QMainWindow):
         container = QWidget(); container.setFixedWidth(500)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(20)
 
-        title = QLabel("Step 3: Connect to DJI Tello"); title.setObjectName("titleLabel")
-        subtitle = QLabel("Ensure you are connected to the drone's WiFi network before continuing.")
+        title = bind(QLabel(), "drone.title"); title.setObjectName("titleLabel")
+        subtitle = bind(QLabel(), "drone.subtitle")
         subtitle.setObjectName("subtitleLabel"); subtitle.setWordWrap(True)
         c_layout.addWidget(title); c_layout.addWidget(subtitle)
 
-        self.drone_conn_status_lbl = QLabel("Ready to connect.")
+        self.drone_conn_status_lbl = bind(QLabel(), "drone.ready")
         self.drone_conn_status_lbl.setObjectName("subtitleLabel")
         c_layout.addWidget(self.drone_conn_status_lbl)
 
-        self.connect_drone_btn = QPushButton("Connect to Drone"); self.connect_drone_btn.setObjectName("blueBtn")
+        self.connect_drone_btn = bind(QPushButton(), "drone.connect")
+        self.connect_drone_btn.setObjectName("blueBtn")
         self.connect_drone_btn.clicked.connect(self.check_drone_connection)
         c_layout.addWidget(self.connect_drone_btn)
 
-        self.p2_next_btn = QPushButton("Launch Flight Dashboard 🚀"); self.p2_next_btn.setObjectName("primaryBtn")
+        self.p2_next_btn = bind(QPushButton(), "drone.launch"); self.p2_next_btn.setObjectName("primaryBtn")
         self.p2_next_btn.setEnabled(False)
         self.p2_next_btn.clicked.connect(self.go_to_dashboard)
         c_layout.addWidget(self.p2_next_btn)
 
-        back_btn = QPushButton("⬅ Back to Test"); back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
+        back_btn = bind(QPushButton(), "drone.back")
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
         c_layout.addWidget(back_btn)
 
         layout.addWidget(container)
@@ -1219,7 +1312,7 @@ class TelloControllerApp(QMainWindow):
         root.setContentsMargins(15, 15, 15, 15)
 
         left = QVBoxLayout()
-        cam_group = QGroupBox("📹 Live Camera Feed")
+        cam_group = bind(QGroupBox(), "dash.camera", "setTitle")
         cam_layout = QVBoxLayout()
         self.camera_label = QLabel()
         self.camera_label.setMinimumSize(640, 480)
@@ -1230,12 +1323,12 @@ class TelloControllerApp(QMainWindow):
         cam_group.setLayout(cam_layout)
         left.addWidget(cam_group, stretch=1)
 
-        telem_group = QGroupBox("📊 Telemetry")
+        telem_group = bind(QGroupBox(), "dash.telemetry", "setTitle")
         telem_grid = QGridLayout()
-        self.battery_lbl = QLabel("Drone Batt: —")
-        self.height_lbl = QLabel("Height: —")
-        self.temp_lbl = QLabel("Temp: —")
-        self.bci_telem_lbl = QLabel("Headset: —")
+        self.battery_lbl = bind(QLabel(), "dash.battery_empty")
+        self.height_lbl = bind(QLabel(), "dash.height_empty")
+        self.temp_lbl = bind(QLabel(), "dash.temp_empty")
+        self.bci_telem_lbl = bind(QLabel(), "dash.headset_empty")
         for i, lbl in enumerate([self.battery_lbl, self.height_lbl, self.temp_lbl, self.bci_telem_lbl]):
             lbl.setStyleSheet("font-size: 13px; color: #8b949e;")
             telem_grid.addWidget(lbl, 0, i)
@@ -1246,16 +1339,16 @@ class TelloControllerApp(QMainWindow):
         telem_group.setLayout(telem_grid)
         left.addWidget(telem_group)
 
-        btn_group = QGroupBox("🕹️ Flight & Controls")
+        btn_group = bind(QGroupBox(), "dash.controls", "setTitle")
         btn_layout = QHBoxLayout()
-        self.takeoff_btn = QPushButton("🚀 Take Off"); self.takeoff_btn.setObjectName("primaryBtn")
+        self.takeoff_btn = bind(QPushButton(), "dash.takeoff"); self.takeoff_btn.setObjectName("primaryBtn")
         self.takeoff_btn.clicked.connect(self.takeoff)
-        self.land_btn = QPushButton("🛬 Land"); self.land_btn.setObjectName("dangerBtn")
+        self.land_btn = bind(QPushButton(), "dash.land"); self.land_btn.setObjectName("dangerBtn")
         self.land_btn.clicked.connect(self.land)
-        self.emergency_btn = QPushButton("⛔ EMERGENCY"); self.emergency_btn.setObjectName("dangerBtn")
+        self.emergency_btn = bind(QPushButton(), "dash.emergency"); self.emergency_btn.setObjectName("dangerBtn")
         self.emergency_btn.setStyleSheet("border: 2px solid #fff;")
         self.emergency_btn.clicked.connect(self.emergency_stop)
-        self.recenter_btn_p3 = QPushButton("🎯 Recenter"); self.recenter_btn_p3.setObjectName("blueBtn")
+        self.recenter_btn_p3 = bind(QPushButton(), "dash.recenter"); self.recenter_btn_p3.setObjectName("blueBtn")
         self.recenter_btn_p3.clicked.connect(self.reset_headset)
         
         btn_layout.addWidget(self.takeoff_btn)
@@ -1270,14 +1363,14 @@ class TelloControllerApp(QMainWindow):
         right = QVBoxLayout()
         top_bar = QVBoxLayout()
         status_row = QHBoxLayout()
-        self.dash_drone_lbl = QLabel("🟢 Drone: Connected"); self.dash_drone_lbl.setObjectName("statusBadge")
-        self.dash_bci_lbl = QLabel("🟢 BCI: Active"); self.dash_bci_lbl.setObjectName("statusBadge")
+        self.dash_drone_lbl = bind(QLabel(), "dash.drone_connected"); self.dash_drone_lbl.setObjectName("statusBadge")
+        self.dash_bci_lbl = bind(QLabel(), "badge.bci_active"); self.dash_bci_lbl.setObjectName("statusBadge")
         status_row.addWidget(self.dash_drone_lbl); status_row.addWidget(self.dash_bci_lbl)
         status_row.addStretch()
         top_bar.addLayout(status_row)
         
         # MC Indicator
-        self.dash_mc_lbl = QLabel("🧠 MC: None")
+        self.dash_mc_lbl = bind(QLabel(), "dash.mc_none")
         self.dash_mc_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.dash_mc_lbl.setStyleSheet(
             "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
@@ -1287,21 +1380,21 @@ class TelloControllerApp(QMainWindow):
         right.addLayout(top_bar)
 
         # Action Buttons
-        act_group = QGroupBox("System")
+        act_group = bind(QGroupBox(), "dash.system", "setTitle")
         act_layout = QVBoxLayout()
-        self.hud_btn = QPushButton("📺 Fullscreen HUD")
+        self.hud_btn = bind(QPushButton(), "dash.hud")
         self.hud_btn.setObjectName("blueBtn")
         self.hud_btn.clicked.connect(self.open_fullscreen_hud)
         act_layout.addWidget(self.hud_btn)
-        
-        self.disconnect_btn = QPushButton("🔌 Disconnect & Quit")
+
+        self.disconnect_btn = bind(QPushButton(), "dash.disconnect")
         self.disconnect_btn.setObjectName("dangerBtn")
         self.disconnect_btn.clicked.connect(self._disconnect_and_quit)
         act_layout.addWidget(self.disconnect_btn)
         act_group.setLayout(act_layout)
         right.addWidget(act_group)
 
-        term_group = QGroupBox("📟 Log")
+        term_group = bind(QGroupBox(), "dash.log", "setTitle")
         term_layout = QVBoxLayout()
         self.terminal = QPlainTextEdit()
         self.terminal.setReadOnly(True)
@@ -1322,7 +1415,7 @@ class TelloControllerApp(QMainWindow):
         csec = 'SIM' if is_sim else self.client_secret_input.text()
 
         self.connect_bci_btn.setEnabled(False)
-        self.bci_conn_status_lbl.setText("🟡 Connecting...")
+        bind(self.bci_conn_status_lbl, "badge.connecting")
 
         self.drone_client = TelloDroneClient(
             cid, csec, tello=None,
@@ -1371,21 +1464,23 @@ class TelloControllerApp(QMainWindow):
         self.headset_combo.clear()
         
         if not headsets:
-            self.headset_combo.addItem("⚠️ No headsets found")
+            self.headset_combo._placeholder_key = "headset.none_found"
+            self.headset_combo.addItem(t("headset.none_found"))
             self.headset_combo.setEnabled(False)
             self.connect_headset_btn.setEnabled(False)
-            self.log("No headsets found. Make sure Emotiv App is running and headset is turned on.")
+            self.log(t("log.no_headsets"))
             return
 
+        self.headset_combo._placeholder_key = None
         for hs in headsets:
             hs_id = hs.get('id', 'Unknown')
             status = hs.get('status', 'Unknown')
-            self.headset_combo.addItem(f"🎧 {hs_id} ({status})", userData=hs_id)
+            self.headset_combo.addItem(t("headset.item", id=hs_id, status=status), userData=hs_id)
 
         self.headset_combo.setEnabled(True)
         self.connect_headset_btn.setEnabled(True)
         self.headset_group.setEnabled(True)
-        self.log(f"{len(headsets)} headset(s) available. Please select one to connect.")
+        self.log(t("log.headsets_available", count=len(headsets)))
         # Auto-advance to headset selection screen on successful authentication & headset query
         self.stacked_widget.setCurrentIndex(1)
 
@@ -1394,11 +1489,11 @@ class TelloControllerApp(QMainWindow):
         idx = self.headset_combo.currentIndex()
         headset_id = self.headset_combo.itemData(idx)
         if not headset_id:
-            self.log("No valid headset selected.")
+            self.log(t("log.no_headset_selected"))
             return
 
         self.connect_headset_btn.setEnabled(False)
-        self.connect_headset_btn.setText("⏳ Connecting...")
+        bind(self.connect_headset_btn, "headset.connecting_btn")
         
         # Load and apply device-specific config profile
         device_type = headset_id.split('-')[0]
@@ -1407,7 +1502,7 @@ class TelloControllerApp(QMainWindow):
         
         self._apply_config_to_client()
         
-        self.log(f"Connecting to headset '{headset_id}'...")
+        self.log(t("log.connecting_headset", headset=headset_id))
 
         if self.drone_client:
             threading.Thread(
@@ -1416,9 +1511,9 @@ class TelloControllerApp(QMainWindow):
                 daemon=True
             ).start()
         else:
-            self.log("Error: Drone client not initialized.")
+            self.log(t("log.client_not_init"))
             self.connect_headset_btn.setEnabled(True)
-            self.connect_headset_btn.setText("Connect Headset")
+            bind(self.connect_headset_btn, "headset.connect")
 
     def _populate_profiles(self, profiles: list):
         """Populate the profile dropdown so the user can pick which one to load."""
@@ -1426,17 +1521,17 @@ class TelloControllerApp(QMainWindow):
         self.profile_combo.clear()
 
         if not profiles:
-            self.profile_combo.addItem("⚠️ No profiles found")
+            self.profile_combo._placeholder_key = "profile.none_found"
+            self.profile_combo.addItem(t("profile.none_found"))
             self.profile_combo.setEnabled(False)
             self.load_profile_btn.setEnabled(False)
-            self.profile_status_lbl.setText(
-                "No training profiles found. Create one in EMOTIV Launcher."
-            )
+            bind(self.profile_status_lbl, "profile.none_hint")
             self.profile_status_lbl.setStyleSheet(
                 "color: #f85149; font-size: 11px; font-style: italic; padding: 0 2px;"
             )
             return
 
+        self.profile_combo._placeholder_key = None
         for p in profiles:
             self.profile_combo.addItem(f"🧠  {p}", userData=p)
 
@@ -1452,26 +1547,24 @@ class TelloControllerApp(QMainWindow):
                     break
 
         count = len(profiles)
-        self.profile_status_lbl.setText(
-            f"{count} profile{'s' if count != 1 else ''} available — select one and click Load."
-        )
+        bind(self.profile_status_lbl, "profile.available", count=count)
         self.profile_status_lbl.setStyleSheet(
             "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;"
         )
-        self.log(f"{count} profile(s) available. Please select one to load.")
+        self.log(t("log.profiles_available", count=count))
 
     def _load_selected_profile(self):
         """Load the profile the user selected in the dropdown."""
         idx = self.profile_combo.currentIndex()
         profile_name = self.profile_combo.itemData(idx)
         if not profile_name:
-            self.log("No valid profile selected.")
+            self.log(t("log.no_profile_selected"))
             return
 
         self.load_profile_btn.setEnabled(False)
-        self.load_profile_btn.setText("⏳ Loading...")
+        bind(self.load_profile_btn, "profile.loading_btn")
         self.config["profile_name"] = profile_name
-        self.log(f"Loading profile '{profile_name}'...")
+        self.log(t("log.loading_profile", profile=profile_name))
 
         if self.drone_client:
             threading.Thread(
@@ -1480,21 +1573,23 @@ class TelloControllerApp(QMainWindow):
                 daemon=True
             ).start()
         else:
-            self.log("Error: BCI not connected. Connect first, then load a profile.")
+            self.log(t("log.bci_not_connected"))
             self.load_profile_btn.setEnabled(True)
-            self.load_profile_btn.setText("🧠 Load Selected Profile")
+            bind(self.load_profile_btn, "profile.load")
 
     def _refresh_profiles(self):
         """Re-send queryProfile to Cortex (available once authorized)."""
         if self.drone_client and hasattr(self.drone_client, 'c'):
             try:
                 self.drone_client.c.query_profile()
-                self.log("Refreshing profile list...")
+                self.log(t("log.refreshing_profiles"))
             except Exception as e:
-                self.log(f"Refresh failed: {e}")
+                self.log(t("log.refresh_failed", detail=e))
 
     def _do_update_bci_status(self, status: str):
-        self.log(f"BCI Status: {status}")
+        # The Cortex layer still speaks in finished English sentences; translate
+        # them at this boundary so the badge and the log follow the UI language.
+        self.log(t("log.bci_status", status=i18n.backend_status(status)))
 
         if status.startswith("PENDING_ACCESS:"):
             self._show_access_pending_ui(status[len("PENDING_ACCESS:"):])
@@ -1502,30 +1597,32 @@ class TelloControllerApp(QMainWindow):
 
         if status.startswith("PROFILE_LOADED:"):
             msg = status[len("PROFILE_LOADED:"):]
-            self.bci_conn_status_lbl.setText(f"🟢 🧠 {msg}")
+            bind(self.bci_conn_status_lbl, "badge.profile_loaded",
+                 profile=i18n.profile_name_from_loaded(msg))
             self.bci_conn_status_lbl.setStyleSheet("background-color: #1a4a2e; border: 1px solid #3fb950;")
             self._hide_access_pending_ui()
             self.p0_next_btn.setEnabled(True)
             self._override_action_for_test()
             # Re-enable the Load button so the user can switch profiles
             self.load_profile_btn.setEnabled(True)
-            self.load_profile_btn.setText("🧠 Load Selected Profile")
-            self.profile_status_lbl.setText(f"Profile '{self.profile_combo.currentText()}' selected. Ready.")
+            bind(self.load_profile_btn, "profile.load")
+            bind(self.profile_status_lbl, "profile.selected",
+                 profile=self.profile_combo.currentText())
             self.profile_status_lbl.setStyleSheet(
                 "color: #3fb950; font-size: 11px; font-style: italic; padding: 0 2px;"
             )
             return
 
-        self.bci_conn_status_lbl.setText(f"🟡 {status}")
+        bind(self.bci_conn_status_lbl, "badge.status", status=i18n.backend_status(status))
         if "Active" in status:
-            self.bci_conn_status_lbl.setText("🟢 BCI: Active")
+            bind(self.bci_conn_status_lbl, "badge.bci_active")
             self.bci_conn_status_lbl.setStyleSheet("background-color: #238636;")
             self._hide_access_pending_ui()
             self._override_action_for_test()
             # Session is active — user can now select and load a profile.
             self.profile_group.setEnabled(True)
             self.profile_combo.setEnabled(True)
-            self.profile_status_lbl.setText("Session active. Select a profile and click Load.")
+            bind(self.profile_status_lbl, "profile.session_active")
             # Auto-advance to profile selection screen only if still on auth/headset screens
             if self.stacked_widget.currentIndex() <= 1:
                 self.stacked_widget.setCurrentIndex(2)
@@ -1534,17 +1631,22 @@ class TelloControllerApp(QMainWindow):
             if is_sim:
                 self.p0_next_btn.setEnabled(True)
         elif "Error" in status or "error" in status.lower() or "finished" in status.lower() or "warning" in status.lower() or "failed" in status.lower():
-            self.bci_conn_status_lbl.setText("🔴 BCI: Scan Finished / Not Found")
-            self.connect_bci_btn.setText("Retry Connection")
+            bind(self.bci_conn_status_lbl, "badge.scan_finished")
+            bind(self.connect_bci_btn, "auth.retry")
             self.connect_bci_btn.setEnabled(True)
             # Re-enable load button in case of profile load error
             self.load_profile_btn.setEnabled(True)
-            self.load_profile_btn.setText("🧠 Load Selected Profile")
+            bind(self.load_profile_btn, "profile.load")
 
     def _show_access_pending_ui(self, message: str):
         """Show a prominent inline banner asking the user to approve via EMOTIV Launcher."""
-        self.bci_conn_status_lbl.setText("🟡 Waiting for EMOTIV Launcher approval...")
+        bind(self.bci_conn_status_lbl, "badge.waiting_approval")
         self.bci_conn_status_lbl.setStyleSheet("background-color: #7d4e00; border: 1px solid #e3a01a;")
+
+        # Cortex sends its own English sentence here; swap in the translated one
+        # when it is the stock message, otherwise show what Cortex said.
+        default_en = i18n.I18N["en"]["access.default_msg"]
+        message_key = "access.default_msg" if message.strip() == default_en else None
 
         # Build or reuse the banner widget
         if not hasattr(self, '_access_banner') or self._access_banner is None:
@@ -1560,7 +1662,7 @@ class TelloControllerApp(QMainWindow):
             icon_row = QHBoxLayout()
             warn_icon = QLabel("⚠️")
             warn_icon.setStyleSheet("font-size: 22px; background: transparent; border: none;")
-            warn_title = QLabel("EMOTIV Launcher Approval Required")
+            warn_title = bind(QLabel(), "access.title")
             warn_title.setStyleSheet(
                 "font-weight: bold; font-size: 14px; color: #e3a01a; "
                 "background: transparent; border: none;"
@@ -1571,18 +1673,15 @@ class TelloControllerApp(QMainWindow):
             b_layout.addLayout(icon_row)
 
             self._access_msg_lbl = QLabel(message)
+            if message_key:
+                bind(self._access_msg_lbl, message_key)
             self._access_msg_lbl.setWordWrap(True)
             self._access_msg_lbl.setStyleSheet(
                 "color: #c9d1d9; font-size: 13px; background: transparent; border: none;"
             )
             b_layout.addWidget(self._access_msg_lbl)
 
-            instructions = QLabel(
-                "1. Open the <b>EMOTIV Launcher</b> app on your computer.\n"
-                "2. Look for a permission request notification from this application.\n"
-                "3. Click <b>Allow</b> to grant access.\n"
-                "4. Then press <b>Retry</b> below."
-            )
+            instructions = bind(QLabel(), "access.steps")
             instructions.setWordWrap(True)
             instructions.setStyleSheet(
                 "color: #8b949e; font-size: 12px; background: transparent; border: none; "
@@ -1590,7 +1689,7 @@ class TelloControllerApp(QMainWindow):
             )
             b_layout.addWidget(instructions)
 
-            retry_btn = QPushButton("🔄 I've approved — Retry")
+            retry_btn = bind(QPushButton(), "access.retry")
             retry_btn.setObjectName("blueBtn")
             retry_btn.clicked.connect(self._retry_access_request)
             b_layout.addWidget(retry_btn)
@@ -1607,7 +1706,11 @@ class TelloControllerApp(QMainWindow):
                     banner
                 )
         else:
-            self._access_msg_lbl.setText(message)
+            if message_key:
+                bind(self._access_msg_lbl, message_key)
+            else:
+                i18n.unbind(self._access_msg_lbl)
+                self._access_msg_lbl.setText(message)
             self._access_banner.setVisible(True)
 
     def _hide_access_pending_ui(self):
@@ -1617,16 +1720,16 @@ class TelloControllerApp(QMainWindow):
     def _retry_access_request(self):
         """Re-send requestAccess so Cortex re-checks or EMOTIV Launcher re-prompts."""
         if self.drone_client and hasattr(self.drone_client, 'c'):
-            self.log("Retrying requestAccess with EMOTIV Cortex...")
+            self.log(t("log.retry_access"))
             try:
                 self.drone_client.c.request_access()
             except Exception as e:
-                self.log(f"Retry failed: {e}")
+                self.log(t("log.retry_failed", detail=e))
 
     def _create_and_train_profile(self):
         new_name = self.new_profile_input.text().strip()
         if not new_name:
-            self.log("Please enter a new profile name.")
+            self.log(t("log.enter_profile_name"))
             return
             
         self.current_training_action = "neutral"
@@ -1637,22 +1740,22 @@ class TelloControllerApp(QMainWindow):
         if action == "neutral":
             self.neutral_accept_btn.hide()
             self.neutral_reject_btn.hide()
-            self.neutral_status_lbl.setText("Accepting training...")
+            bind(self.neutral_status_lbl, "train.accepting")
         else:
             self.push_accept_btn.hide()
             self.push_reject_btn.hide()
-            self.push_status_lbl.setText("Accepting training...")
+            bind(self.push_status_lbl, "train.accepting")
         self.drone_client.accept_training(action)
         
     def _on_training_reject(self, action: str):
         if action == "neutral":
             self.neutral_accept_btn.hide()
             self.neutral_reject_btn.hide()
-            self.neutral_status_lbl.setText("Retrying training...")
+            bind(self.neutral_status_lbl, "train.retrying")
         else:
             self.push_accept_btn.hide()
             self.push_reject_btn.hide()
-            self.push_status_lbl.setText("Retrying training...")
+            bind(self.push_status_lbl, "train.retrying")
         self.drone_client.reject_training(action)
         
     def _on_training_update(self, event: str):
@@ -1676,17 +1779,17 @@ class TelloControllerApp(QMainWindow):
         elif "succeeded" in event_lower:
             if hasattr(self, "recording_timer") and self.recording_timer.isActive():
                 self.recording_timer.stop()
-            lbl.setText("Training Succeeded! Good data quality.")
+            bind(lbl, "train.succeeded")
             btn_acc.show()
             btn_rej.show()
-            btn_rej.setText("Reject (Retry)")
+            bind(btn_rej, "train.reject")
         elif "failed" in event_lower:
             if hasattr(self, "recording_timer") and self.recording_timer.isActive():
                 self.recording_timer.stop()
-            lbl.setText("Training Failed! Poor data quality.")
+            bind(lbl, "train.failed")
             btn_acc.hide()
             btn_rej.show()
-            btn_rej.setText("Retry")
+            bind(btn_rej, "train.retry")
         elif "completed" in event_lower:
             if hasattr(self, "recording_timer") and self.recording_timer.isActive():
                 self.recording_timer.stop()
@@ -1694,7 +1797,7 @@ class TelloControllerApp(QMainWindow):
                 self._begin_training_sequence("push")
             else:
                 self.push_anim_timer.stop()
-                lbl.setText("All training complete! Saving profile...")
+                bind(lbl, "train.complete")
                 self.drone_client.save_profile()
                 self.push_next_btn.show()
 
@@ -1705,11 +1808,13 @@ class TelloControllerApp(QMainWindow):
             return
 
         # Overall signal quality (0-4)
-        signal_labels = {0: "No Signal", 1: "Very Bad", 2: "Poor", 3: "Fair", 4: "Good"}
+        signal_keys = {0: "quality.none", 1: "quality.very_bad", 2: "quality.poor",
+                       3: "quality.fair", 4: "quality.good"}
         signal_colors = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
-        sig_text = signal_labels.get(signal, f"Unknown ({signal})")
+        key = signal_keys.get(signal)
+        sig_text = t(key) if key else t("quality.unknown", value=signal)
         sig_color = signal_colors.get(signal, "#8b949e")
-        self.eq_overall_lbl.setText(f"Overall Signal: {sig_text} ({signal}/4)")
+        bind(self.eq_overall_lbl, "eq.overall", quality=sig_text, value=signal)
         self.eq_overall_lbl.setStyleSheet(
             f"font-size: 16px; font-weight: bold; color: {sig_color};"
             f"padding: 10px; background-color: #161b22; border: 1px solid {sig_color}; border-radius: 8px;"
@@ -1718,13 +1823,14 @@ class TelloControllerApp(QMainWindow):
         # Per-sensor contact quality
         # CQ values: 0=No Signal, 1=Bad, 2=Poor, 3=Fair, 4=Good
         cq_colors = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
-        cq_labels_map = {0: "No Signal", 1: "Bad", 2: "Poor", 3: "Fair", 4: "Good"}
+        cq_keys = {0: "quality.none", 1: "quality.bad", 2: "quality.poor",
+                   3: "quality.fair", 4: "quality.good"}
 
         for i, cq_val in enumerate(cq_list):
             sensor_name = f"S{i}"
             cq_val_int = int(cq_val) if isinstance(cq_val, (int, float)) else 0
             color = cq_colors.get(cq_val_int, "#8b949e")
-            cq_text = cq_labels_map.get(cq_val_int, "?")
+            cq_key = cq_keys.get(cq_val_int, "quality.short_unknown")
 
             if sensor_name not in self.eq_sensor_labels:
                 name_lbl = QLabel(sensor_name)
@@ -1736,7 +1842,7 @@ class TelloControllerApp(QMainWindow):
                 bar.setFixedHeight(20)
                 bar.setTextVisible(False)
 
-                status_lbl = QLabel(cq_text)
+                status_lbl = bind(QLabel(), cq_key)
                 status_lbl.setFixedWidth(80)
 
                 row = len(self.eq_sensor_labels)
@@ -1751,7 +1857,7 @@ class TelloControllerApp(QMainWindow):
                 f"QProgressBar {{ background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; }}"
                 f"QProgressBar::chunk {{ background-color: {color}; border-radius: 3px; }}"
             )
-            status_lbl.setText(cq_text)
+            bind(status_lbl, cq_key)
             status_lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
 
         # Determine if quality is good enough to start training
@@ -1762,11 +1868,11 @@ class TelloControllerApp(QMainWindow):
             good_enough = False
 
         if good_enough:
-            self.eq_status_lbl.setText("✅ Signal quality is sufficient for training.")
+            bind(self.eq_status_lbl, "eq.ok")
             self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #3fb950; margin-top: 10px;")
             self.eq_next_btn.setEnabled(True)
         else:
-            self.eq_status_lbl.setText("⚠️ Improve sensor contact before training. Adjust the headset.")
+            bind(self.eq_status_lbl, "eq.bad")
             self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #e3a01a; margin-top: 10px;")
             self.eq_next_btn.setEnabled(False)
 
@@ -1778,7 +1884,7 @@ class TelloControllerApp(QMainWindow):
         self.bci_telemetry_signal.emit(battery, signal)
 
     def _do_update_bci_telemetry(self, battery: int, signal: int):
-        self.bci_telem_lbl.setText(f"Headset: {battery}% | Sig: {signal}/4")
+        bind(self.bci_telem_lbl, "dash.headset", battery=battery, signal=signal)
 
     def _override_action_for_test(self):
         if not self.drone_client: return
@@ -1790,19 +1896,18 @@ class TelloControllerApp(QMainWindow):
             is_flying = self.drone_client.drone.is_flying
             
             def _update_ui():
-                status_text = f"Last Mental Command: {action}"
-                if action == "TakeOff" and was_flying and is_flying:
-                    status_text += " (Ignored)"
-                elif action in ["Land", "EmergencyStop"] and not was_flying and not is_flying:
-                    status_text += " (Ignored)"
-                elif action.startswith("Flip") and not is_flying:
-                    status_text += " (Ignored)"
-                self.last_action_lbl.setText(status_text)
+                ignored = (
+                    (action == "TakeOff" and was_flying and is_flying)
+                    or (action in ["Land", "EmergencyStop"] and not was_flying and not is_flying)
+                    or (action.startswith("Flip") and not is_flying)
+                )
+                key = "test.last_command_ignored" if ignored else "test.last_command"
+                bind(self.last_action_lbl, key, action=action)
                 if is_flying and not was_flying:
-                    self.virtual_flight_state_lbl.setText("🛸 Status: Flying")
+                    bind(self.virtual_flight_state_lbl, "test.flying")
                     self.virtual_flight_state_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #3fb950;")
                 elif not is_flying and was_flying:
-                    self.virtual_flight_state_lbl.setText("🛫 Status: Landed")
+                    bind(self.virtual_flight_state_lbl, "test.landed")
                     self.virtual_flight_state_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #8b949e;")
             QTimer.singleShot(0, _update_ui)
         self.drone_client.drone.execute_action = test_execute
@@ -1810,7 +1915,7 @@ class TelloControllerApp(QMainWindow):
     def reset_headset(self):
         if self.drone_client:
             self.drone_client.reset_center()
-            self.log("Manual recenter triggered.")
+            self.log(t("log.recenter"))
 
     def toggle_fullscreen(self):
         if self.drone_sim.isFullScreen():
@@ -1824,29 +1929,31 @@ class TelloControllerApp(QMainWindow):
 
     def check_drone_connection(self):
         self.connect_drone_btn.setEnabled(False)
-        self.drone_conn_status_lbl.setText("Connecting to Tello WiFi...")
-        
+        bind(self.drone_conn_status_lbl, "drone.connecting")
+
         is_sim = self.simulate_cb.isChecked()
         if is_sim:
-            self.drone_connected_signal.emit(True, "Simulation mode. Skipping real drone connection.")
+            self.drone_connected_signal.emit(True, t("drone.sim_skip"))
             return
 
         def _connect():
             try:
                 from djitellopy import Tello
-                t = Tello()
-                t.connect()
-                batt = t.get_battery()
-                self.tello = t
-                self.drone_connected_signal.emit(True, f"Drone connected successfully! Battery: {batt}%")
+                tello = Tello()
+                tello.connect()
+                batt = tello.get_battery()
+                self.tello = tello
+                self.drone_connected_signal.emit(True, t("drone.connected", battery=batt))
             except Exception as e:
                 self.tello = None
-                self.drone_connected_signal.emit(False, f"Connection failed: {e}")
+                self.drone_connected_signal.emit(False, t("drone.failed", detail=e))
 
         threading.Thread(target=_connect, daemon=True).start()
 
     def _on_drone_connection_result(self, success, message):
         self.connect_drone_btn.setEnabled(True)
+        # `message` is already-translated text, not a key.
+        i18n.unbind(self.drone_conn_status_lbl)
         self.drone_conn_status_lbl.setText(message)
         
         if success:
@@ -1858,7 +1965,7 @@ class TelloControllerApp(QMainWindow):
     def go_to_dashboard(self):
         self.stacked_widget.setCurrentIndex(8)
         is_sim = self.simulate_cb.isChecked()
-        self.dash_drone_lbl.setText("🟢 Drone: Connected" if not is_sim else "🟡 Drone: Simulating")
+        bind(self.dash_drone_lbl, "dash.drone_sim" if is_sim else "dash.drone_connected")
         self.video_thread = VideoThread(tello=self.tello)
         self.video_thread.frame_ready.connect(self.update_camera)
         self.video_thread.status_update.connect(self.log)
@@ -1879,13 +1986,13 @@ class TelloControllerApp(QMainWindow):
                 action_time = getattr(self.drone_client.drone, 'last_action_time', 0.0)
                 now = time.time()
                 if action and (now - action_time) < 2.0:
-                    self.dash_mc_lbl.setText(f"🧠 MC: {action}")
+                    bind(self.dash_mc_lbl, "dash.mc", action=action)
                     self.dash_mc_lbl.setStyleSheet(
                         "background-color: #1f6feb; border: 1px solid #58a6ff; border-radius: 6px;"
                         "padding: 8px 12px; color: #ffffff; font-size: 14px; font-weight: bold;"
                     )
                 else:
-                    self.dash_mc_lbl.setText("🧠 MC: None")
+                    bind(self.dash_mc_lbl, "dash.mc_none")
                     self.dash_mc_lbl.setStyleSheet(
                         "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
                         "padding: 8px 12px; color: #8b949e; font-size: 14px; font-weight: bold;"
@@ -1898,15 +2005,15 @@ class TelloControllerApp(QMainWindow):
         # Update Drone Dashboard Stats
         if self.tello and self.stacked_widget.currentIndex() == 3:
             try:
-                self.battery_lbl.setText(f"Drone Batt: {self.tello.get_battery()}%")
-                self.height_lbl.setText(f"Height: {self.tello.get_height()}cm")
-                self.temp_lbl.setText(f"Temp: {self.tello.get_temperature()}°C")
+                bind(self.battery_lbl, "dash.battery", value=self.tello.get_battery())
+                bind(self.height_lbl, "dash.height", value=self.tello.get_height())
+                bind(self.temp_lbl, "dash.temp", value=self.tello.get_temperature())
             except Exception:
                 pass
 
     def _disconnect_and_quit(self):
         """Clean up connection and return to setup page."""
-        self.log("Disconnecting...")
+        self.log(t("log.disconnecting"))
         if self.video_thread:
             self.video_thread.stop()
             self.video_thread.wait(1000)
@@ -1925,7 +2032,7 @@ class TelloControllerApp(QMainWindow):
             threading.Thread(target=self._safe_land_and_end, daemon=True).start()
 
         self.stacked_widget.setCurrentIndex(0)
-        self.log("Disconnected and returned to setup.")
+        self.log(t("log.disconnected"))
 
     def _safe_land_and_end(self):
         try:
@@ -1956,14 +2063,14 @@ class TelloControllerApp(QMainWindow):
         self.hud_widget.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.hud_widget.showFullScreen()
         self.hud_widget.setFocus()
-        self.log("Opened Fullscreen HUD.")
+        self.log(t("log.hud_opened"))
 
     def close_fullscreen_hud(self):
         if hasattr(self, 'hud_widget') and self.hud_widget is not None:
             self.hud_timer.stop()
             self.hud_widget.close()
             self.hud_widget = None
-        self.log("Closed Fullscreen HUD.")
+        self.log(t("log.hud_closed"))
 
     # ─── Flight actions ───
     def takeoff(self):
@@ -1972,7 +2079,7 @@ class TelloControllerApp(QMainWindow):
         elif self.drone_client:
             self.drone_client.drone.is_flying = True
             self.drone_client.drone.start_rc_loop()
-            self.log("[SIM] Virtual takeoff")
+            self.log(t("log.sim_takeoff"))
 
     def _safe_takeoff(self):
         try:
@@ -1982,34 +2089,34 @@ class TelloControllerApp(QMainWindow):
             if self.drone_client:
                 self.drone_client.drone.is_flying = True
                 self.drone_client.drone.start_rc_loop()
-            self.log_signal.emit("Airborne! Head tracking active.")
+            self.log_signal.emit(t("log.airborne"))
         except Exception as e:
-            self.log_signal.emit(f"Takeoff failed: {e}")
+            self.log_signal.emit(t("log.takeoff_failed", detail=e))
 
     def land(self):
         if self.drone_client:
             self.drone_client.drone.stop_movement()
             self.drone_client.drone.is_flying = False
         if self.tello:
-            threading.Thread(target=lambda: self._safe_cmd(self.tello.land, "Landed safely"), daemon=True).start()
+            threading.Thread(target=lambda: self._safe_cmd(self.tello.land, t("log.landed")), daemon=True).start()
         else:
-            self.log("[SIM] Virtual landing")
+            self.log(t("log.sim_landing"))
 
     def emergency_stop(self):
         if self.drone_client:
             self.drone_client.drone.stop_movement()
             self.drone_client.drone.is_flying = False
         if self.tello:
-            threading.Thread(target=lambda: self._safe_cmd(self.tello.emergency, "Motors stopped"), daemon=True).start()
+            threading.Thread(target=lambda: self._safe_cmd(self.tello.emergency, t("log.motors_stopped")), daemon=True).start()
         else:
-            self.log("[SIM] Emergency stop")
+            self.log(t("log.sim_emergency"))
 
     def _safe_cmd(self, func, ok_msg):
         try:
             func()
             self.log_signal.emit(ok_msg)
         except Exception as e:
-            self.log_signal.emit(f"Error: {e}")
+            self.log_signal.emit(t("log.error", detail=e))
 
     def load_settings(self):
         c = self.config
@@ -2022,6 +2129,7 @@ class TelloControllerApp(QMainWindow):
     def save_settings(self):
         self.config["client_id"] = self.client_id_input.text()
         self.config["client_secret"] = self.client_secret_input.text()
+        self.config["language"] = i18n.get_lang()
         # profile_name is set automatically by _populate_profiles when profiles arrive
         self.config["simulate"] = self.simulate_cb.isChecked()
         ConfigManager.save_config(self.config)
@@ -2102,14 +2210,15 @@ class TelloControllerApp(QMainWindow):
 class SettingsDialog(QDialog):
     def __init__(self, config, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("⚙ Configurations")
+        self.setWindowTitle(t("settings.title"))
         self.setMinimumWidth(400)
         self.config = config.copy()
-        
+
         layout = QVBoxLayout(self)
-        
-        # Motion Settings
-        motion_group = QGroupBox("🎯 Motion Settings")
+
+        # Motion Settings. The dialog is modal and rebuilt on every open, so its
+        # strings are resolved once here instead of going through bind().
+        motion_group = QGroupBox(t("settings.motion"))
         motion_layout = QVBoxLayout()
         def add_slider(name, min_v, max_v, step, fmt_func, default_v, tooltip=""):
             row = QHBoxLayout()
@@ -2129,33 +2238,33 @@ class SettingsDialog(QDialog):
             motion_layout.addLayout(row)
             return slider
 
-        self.invert_yaw_cb = QCheckBox("Invert Head Left/Right (Yaw)")
+        self.invert_yaw_cb = QCheckBox(t("settings.invert_yaw"))
         self.invert_yaw_cb.setChecked(self.config.get("invert_yaw", False))
         self.invert_yaw_cb.stateChanged.connect(self._live_update)
         motion_layout.addWidget(self.invert_yaw_cb)
 
-        self.sens_left_slider = add_slider("Left Sens.", 1, 300, 1, lambda x: f"{x:.0f}", self.config.get("sens_left", 70.0),
-            "Multiplies intensity when turning your head left (Yaw).")
-        self.sens_right_slider = add_slider("Right Sens.", 1, 300, 1, lambda x: f"{x:.0f}", self.config.get("sens_right", 70.0),
-            "Multiplies intensity when turning your head right (Yaw).")
-        self.sens_fwd_slider = add_slider("Fwd Sens.", 1, 300, 1, lambda x: f"{x:.0f}", self.config.get("sens_fwd", 50.0),
-            "Multiplies intensity when tilting your head down (Pitch Forward).")
-        self.sens_back_slider = add_slider("Back Sens.", 1, 300, 1, lambda x: f"{x:.0f}", self.config.get("sens_back", 50.0),
-            "Multiplies intensity when tilting your head up (Pitch Backward).")
-        
-        self.dead_slider = add_slider("Deadzone", 0, 500, 1, lambda x: f"{x/1000:.3f}", self.config.get("deadzone", 0.03) * 1000,
-            "Creates an 'ignore bubble' around the center. Increase to ignore unintentional tiny wobbles.")
-        self.smooth_slider = add_slider("Smoothing", 1, 20, 1, str, self.config.get("smoothing_window", 6),
-            "Averages movements. Higher = smoother flight but adds a slight delay. Lower = more twitchy.")
-        self.speed_slider = add_slider("Max Speed", 10, 100, 5, str, self.config.get("max_speed", 60),
-            "A hard safety limit (0-100) on how fast the drone is allowed to fly.")
+        self.sens_left_slider = add_slider(t("settings.sens_left"), 1, 300, 1, lambda x: f"{x:.0f}",
+            self.config.get("sens_left", 70.0), t("settings.sens_left.tip"))
+        self.sens_right_slider = add_slider(t("settings.sens_right"), 1, 300, 1, lambda x: f"{x:.0f}",
+            self.config.get("sens_right", 70.0), t("settings.sens_right.tip"))
+        self.sens_fwd_slider = add_slider(t("settings.sens_fwd"), 1, 300, 1, lambda x: f"{x:.0f}",
+            self.config.get("sens_fwd", 50.0), t("settings.sens_fwd.tip"))
+        self.sens_back_slider = add_slider(t("settings.sens_back"), 1, 300, 1, lambda x: f"{x:.0f}",
+            self.config.get("sens_back", 50.0), t("settings.sens_back.tip"))
+
+        self.dead_slider = add_slider(t("settings.deadzone"), 0, 500, 1, lambda x: f"{x/1000:.3f}",
+            self.config.get("deadzone", 0.03) * 1000, t("settings.deadzone.tip"))
+        self.smooth_slider = add_slider(t("settings.smoothing"), 1, 20, 1, str,
+            self.config.get("smoothing_window", 6), t("settings.smoothing.tip"))
+        self.speed_slider = add_slider(t("settings.max_speed"), 10, 100, 5, str,
+            self.config.get("max_speed", 60), t("settings.max_speed.tip"))
         motion_group.setLayout(motion_layout)
         layout.addWidget(motion_group)
-        
+
         # Emotiv API Settings
-        emotiv_group = QGroupBox("🧠 Emotiv API Settings")
+        emotiv_group = QGroupBox(t("settings.emotiv"))
         self.emotiv_layout = QVBoxLayout()
-        self.emotiv_status_lbl = QLabel("Loading data from headset...")
+        self.emotiv_status_lbl = QLabel(t("settings.loading"))
         self.emotiv_status_lbl.setStyleSheet("color: #8b949e;")
         self.emotiv_layout.addWidget(self.emotiv_status_lbl)
         emotiv_group.setLayout(self.emotiv_layout)
@@ -2169,10 +2278,12 @@ class SettingsDialog(QDialog):
         if app and hasattr(app, 'drone_client') and app.drone_client:
             app.drone_client.get_mc_config()
         else:
-            self.emotiv_status_lbl.setText("Headset not connected.")
+            self.emotiv_status_lbl.setText(t("settings.not_connected"))
 
-        # Mental Commands
-        mental_group = QGroupBox("🧠 Mental Commands")
+        # Mental Commands. The Cortex command names and drone action names are
+        # protocol values, so they stay verbatim — only "None" is translated,
+        # and the real value always travels in the item's userData.
+        mental_group = QGroupBox(t("settings.mental"))
         self.mental_layout = QVBoxLayout()
         self.mapping_rows = []
         CMDS = ["None", "push", "pull", "lift", "drop", "click"]
@@ -2182,19 +2293,23 @@ class SettingsDialog(QDialog):
             "MoveForward", "MoveBack", "MoveLeft", "MoveRight", "MoveUp", "MoveDown",
             "FlipForward", "FlipBack", "FlipLeft", "FlipRight",
         ]
-        
+
+        def fill(combo, values):
+            for value in values:
+                combo.addItem(t("settings.none") if value == "None" else value, userData=value)
+
         mappings = self.config.get("mental_mappings", [])
         for i in range(4):
             row = QHBoxLayout()
-            cmd_combo = QComboBox(); cmd_combo.addItems(CMDS)
-            action_combo = QComboBox(); action_combo.addItems(ACTIONS)
-            
+            cmd_combo = QComboBox(); fill(cmd_combo, CMDS)
+            action_combo = QComboBox(); fill(action_combo, ACTIONS)
+
             if i < len(mappings):
-                idx = cmd_combo.findText(mappings[i].get("command", "None"))
+                idx = cmd_combo.findData(mappings[i].get("command", "None"))
                 if idx >= 0: cmd_combo.setCurrentIndex(idx)
-                idx = action_combo.findText(mappings[i].get("action", "None"))
+                idx = action_combo.findData(mappings[i].get("action", "None"))
                 if idx >= 0: action_combo.setCurrentIndex(idx)
-                
+
             cmd_combo.currentIndexChanged.connect(self._live_update)
             action_combo.currentIndexChanged.connect(self._live_update)
             
@@ -2207,7 +2322,7 @@ class SettingsDialog(QDialog):
         # Buttons
         btn_layout = QHBoxLayout()
         # "Save" button is now just "Close" since changes are live
-        close_btn = QPushButton("Close"); close_btn.setObjectName("primaryBtn")
+        close_btn = QPushButton(t("settings.close")); close_btn.setObjectName("primaryBtn")
         close_btn.clicked.connect(self.accept)
         btn_layout.addStretch()
         btn_layout.addWidget(close_btn)
@@ -2222,7 +2337,11 @@ class SettingsDialog(QDialog):
         elif etype == 'training_threshold':
             if hasattr(self, 'threshold_lbl'):
                 self.threshold_lbl.deleteLater()
-            self.threshold_lbl = QLabel(f"Current Threshold: {data.get('currentThreshold', 'N/A')} | Last Score: {data.get('lastTrainingScore', 'N/A')}")
+            self.threshold_lbl = QLabel(t(
+                "settings.threshold",
+                threshold=data.get('currentThreshold', 'N/A'),
+                score=data.get('lastTrainingScore', 'N/A'),
+            ))
             self.threshold_lbl.setStyleSheet("font-weight: bold; color: #58a6ff;")
             self.emotiv_layout.insertWidget(0, self.threshold_lbl)
         elif etype == 'action_sensitivity':
@@ -2243,7 +2362,7 @@ class SettingsDialog(QDialog):
             val = self.mc_sensitivities[i]
             
             row = QHBoxLayout()
-            lbl = QLabel(f"{action.capitalize()} Sens.")
+            lbl = QLabel(t("settings.action_sens", action=action.capitalize()))
             lbl.setFixedWidth(110)
             
             slider = QSlider(Qt.Orientation.Horizontal)
@@ -2288,11 +2407,11 @@ class SettingsDialog(QDialog):
 
         mappings = []
         for w in self.mapping_rows:
-            cmd = w["command"].currentText()
+            cmd = w["command"].currentData()
             if cmd != "None":
                 mappings.append({
                     "command": cmd,
-                    "action": w["action"].currentText(),
+                    "action": w["action"].currentData(),
                     "threshold": 0.5,
                     "auto_release": 0
                 })

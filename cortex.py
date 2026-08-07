@@ -27,6 +27,8 @@ import time
 import json
 from datetime import datetime
 
+from app_paths import resource_path
+
 # define request id
 QUERY_HEADSET_ID                    =   1
 CONNECT_HEADSET_ID                  =   2
@@ -128,7 +130,10 @@ class Cortex(Dispatcher):
         
         # As default, a Emotiv self-signed certificate is required.
         # If you don't want to use the certificate, please replace by the below line  by sslopt={"cert_reqs": ssl.CERT_NONE}
-        sslopt = {'ca_certs': "./certificates/rootCA.pem", "cert_reqs": ssl.CERT_REQUIRED}
+        # Resolved through resource_path so it also works from a packaged app,
+        # where the working directory is not the app directory.
+        sslopt = {'ca_certs': resource_path("certificates", "rootCA.pem"),
+                  "cert_reqs": ssl.CERT_REQUIRED}
 
         self.websock_thread  = threading.Thread(target=self.ws.run_forever, args=(None, sslopt), name=thread_name)
         self.websock_thread .start()
