@@ -30,9 +30,9 @@ class TelloDroneClient:
                  bci_status_callback=None, bci_telemetry_callback=None,
                  profiles_callback=None, headsets_callback=None,
                  training_callback=None, dev_data_callback=None,
-                 mc_config_callback=None):
+                 mc_config_callback=None, brainmap_callback=None):
         self.c = Cortex(client_id, client_secret, debug_mode=debug)
-        
+
         self.bci_status_callback = bci_status_callback
         self.bci_telemetry_callback = bci_telemetry_callback
         self.profiles_callback = profiles_callback
@@ -40,7 +40,8 @@ class TelloDroneClient:
         self.training_callback = training_callback
         self.dev_data_callback = dev_data_callback
         self.mc_config_callback = mc_config_callback
-        
+        self.brainmap_callback = brainmap_callback
+
         self.latest_raw_mot = ""
         self.latest_raw_com = ""
         self.q_indices = None
@@ -88,6 +89,7 @@ class TelloDroneClient:
         self.c.bind(get_mc_active_action_done=self.on_mc_active_action_done)
         self.c.bind(mc_training_threshold_done=self.on_mc_training_threshold_done)
         self.c.bind(mc_action_sensitivity_done=self.on_mc_action_sensitivity_done)
+        self.c.bind(mc_brainmap_done=self.on_mc_brainmap_done)
 
     def start(self, headset_id: str = '', profile_name: str = ''):
         if self.bci_status_callback:
@@ -347,6 +349,23 @@ class TelloDroneClient:
         data = kwargs.get('data')
         if self.mc_config_callback:
             self.mc_config_callback({'type': 'action_sensitivity', 'data': data})
+
+    def on_mc_brainmap_done(self, *args, **kwargs):
+        """mentalCommandBrainMap result: one (x, y) per trained action.
+
+        The further apart the points are, the less often Cortex confuses those
+        actions with each other — that is the whole reason to show it after
+        training instead of just saying "done".
+        """
+        data = kwargs.get('data') or []
+        if self.brainmap_callback:
+            self.brainmap_callback(data)
+
+    def get_brain_map(self):
+        """Ask Cortex how well separated the trained actions ended up."""
+        profile = getattr(self.c, 'profile_name', '')
+        if profile:
+            self.c.get_mental_command_brain_map(profile)
 
     def get_mc_config(self):
         """Request the current MC configuration from Cortex."""

@@ -18,13 +18,32 @@ from PyQt6.QtWidgets import (
     QProgressBar, QScrollArea, QPlainTextEdit, QSlider, QStackedWidget,
     QSizePolicy, QGridLayout, QTabWidget, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject, QRectF
-from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette, QPainter, QPen, QBrush
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject, QRectF, QPointF
+from PyQt6.QtGui import (
+    QImage, QPixmap, QColor, QPalette, QPainter, QPen, QBrush,
+    QLinearGradient, QRadialGradient, QPolygonF,
+)
 import math
+import random
 from config_manager import ConfigManager
 from app_paths import resource_path
 import i18n
 from i18n import t, bind
+
+# Pages in the QStackedWidget, in the order setup_page_* adds them. These used
+# to be bare numbers scattered through the file, which is how the dashboard
+# telemetry ended up gated on the EEG-check page instead of the dashboard.
+PAGE_AUTH = 0
+PAGE_HEADSET = 1
+PAGE_PROFILE = 2
+PAGE_EQ = 3
+PAGE_TRAIN_NEUTRAL = 4
+PAGE_TRAIN_PUSH = 5
+PAGE_TEST = 6
+PAGE_DRONE = 7
+PAGE_DASHBOARD = 8
+PAGE_BRAINMAP = 9
+
 
 class EmittingStream(QObject):
     textWritten = pyqtSignal(str)
@@ -36,48 +55,79 @@ class EmittingStream(QObject):
 
 STYLESHEET = """
 QMainWindow { background-color: #0d1117; }
-QWidget { color: #e6edf3; font-family: 'Inter', sans-serif; }
+QWidget { color: #e6edf3; font-family: 'Inter', 'SF Pro Text', 'Segoe UI', sans-serif; }
 QGroupBox {
-    border: 1px solid #30363d; border-radius: 8px;
-    margin-top: 12px; padding: 14px 10px 10px 10px;
+    border: 1px solid #30363d; border-radius: 10px;
+    margin-top: 16px; padding: 18px 14px 14px 14px;
     background-color: #161b22; font-weight: bold; font-size: 13px;
 }
-QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: #58a6ff; }
+QGroupBox::title {
+    subcontrol-origin: margin; left: 14px; padding: 2px 8px; color: #58a6ff;
+    background-color: #161b22; border-radius: 4px;
+}
 QLineEdit, QComboBox {
-    background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;
-    padding: 8px 12px; color: #e6edf3; font-size: 14px;
+    background-color: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+    padding: 9px 12px; color: #e6edf3; font-size: 14px;
+    selection-background-color: #1f6feb;
 }
+QLineEdit:hover, QComboBox:hover { border-color: #484f58; }
 QLineEdit:focus, QComboBox:focus { border-color: #58a6ff; }
-QPushButton {
-    border: none; border-radius: 6px; padding: 10px 20px;
-    font-weight: bold; font-size: 14px; color: white; background-color: #21262d; border: 1px solid #30363d;
+QLineEdit:disabled, QComboBox:disabled { color: #6e7681; background-color: #10151c; }
+QComboBox::drop-down { border: none; width: 26px; }
+QComboBox QAbstractItemView {
+    background-color: #161b22; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 8px; selection-background-color: #1f6feb; padding: 4px;
 }
-QPushButton:hover { background-color: #30363d; }
-QPushButton:disabled { background-color: #161b22; color: #8b949e; border-color: #21262d; }
-QPushButton#primaryBtn { background-color: #238636; border: none; }
-QPushButton#primaryBtn:hover { background-color: #2ea043; }
-QPushButton#primaryBtn:disabled { background-color: #1a4220; color: #8b949e; }
-QPushButton#dangerBtn { background-color: #da3633; border: none; }
+QPushButton {
+    border-radius: 8px; padding: 10px 20px;
+    font-weight: bold; font-size: 14px; color: #e6edf3;
+    background-color: #21262d; border: 1px solid #30363d;
+}
+QPushButton:hover { background-color: #30363d; border-color: #58a6ff; }
+QPushButton:pressed { background-color: #1c2128; }
+QPushButton:disabled { background-color: #161b22; color: #6e7681; border-color: #21262d; }
+QPushButton#primaryBtn { background-color: #238636; border: 1px solid #2ea043; color: #ffffff; }
+QPushButton#primaryBtn:hover { background-color: #2ea043; border-color: #3fb950; }
+QPushButton#primaryBtn:disabled { background-color: #1a4220; color: #6e7681; border-color: #1a4220; }
+QPushButton#dangerBtn { background-color: #da3633; border: 1px solid #f85149; color: #ffffff; }
 QPushButton#dangerBtn:hover { background-color: #f85149; }
-QPushButton#blueBtn { background-color: #1f6feb; border: none; }
+QPushButton#blueBtn { background-color: #1f6feb; border: 1px solid #388bfd; color: #ffffff; }
 QPushButton#blueBtn:hover { background-color: #388bfd; }
-QCheckBox { spacing: 8px; font-size: 14px; }
-QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #30363d; background: #0d1117; }
+QCheckBox { spacing: 9px; font-size: 14px; }
+QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px; border: 1px solid #30363d; background: #0d1117; }
+QCheckBox::indicator:hover { border-color: #58a6ff; }
 QCheckBox::indicator:checked { background-color: #58a6ff; border-color: #58a6ff; }
-QSlider::groove:horizontal { height: 6px; background: #30363d; border-radius: 3px; }
-QSlider::handle:horizontal { width: 16px; height: 16px; margin: -5px 0; background: #58a6ff; border-radius: 8px; }
+QSlider::groove:horizontal { height: 6px; background: #21262d; border-radius: 3px; }
+QSlider::sub-page:horizontal { background: #58a6ff; border-radius: 3px; }
+QSlider::handle:horizontal {
+    width: 16px; height: 16px; margin: -6px 0; background: #e6edf3;
+    border: 2px solid #58a6ff; border-radius: 9px;
+}
+QSlider::handle:horizontal:hover { background: #ffffff; }
 QPlainTextEdit {
     background-color: #010409; color: #3fb950; border: 1px solid #30363d;
-    border-radius: 6px; font-family: monospace; font-size: 12px;
+    border-radius: 8px; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;
+    padding: 6px;
 }
-QLabel#titleLabel { font-size: 24px; font-weight: bold; color: #ffffff; }
+QLabel#titleLabel { font-size: 25px; font-weight: bold; color: #ffffff; }
 QLabel#subtitleLabel { font-size: 14px; color: #8b949e; }
 QLabel#statusBadge {
-    background-color: #1a1e24; border: 1px solid #30363d; border-radius: 12px;
-    padding: 6px 16px; font-size: 14px; font-weight: bold;
+    background-color: #161b22; border: 1px solid #30363d; border-radius: 14px;
+    padding: 7px 18px; font-size: 14px; font-weight: bold;
 }
-QProgressBar { border: 1px solid #30363d; border-radius: 4px; background-color: #0d1117; text-align: center; color: white; }
-QProgressBar::chunk { background-color: #58a6ff; border-radius: 3px; }
+QProgressBar {
+    border: 1px solid #30363d; border-radius: 5px; background-color: #0d1117;
+    text-align: center; color: #e6edf3; height: 18px;
+}
+QProgressBar::chunk { background-color: #58a6ff; border-radius: 4px; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #30363d; border-radius: 5px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #484f58; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QToolTip {
+    background-color: #1c2128; color: #e6edf3; border: 1px solid #58a6ff;
+    border-radius: 6px; padding: 6px 8px; font-size: 12px;
+}
 """
 
 class VideoThread(QThread):
@@ -204,9 +254,26 @@ class VideoThread(QThread):
 
 
 class DroneSimulatorWidget(QWidget):
-    def __init__(self, main_app=None, parent=None):
+    """Third-person view of a virtual drone.
+
+    Two modes, because the two screens that use it want opposite things:
+
+      "game"      the live test screen — collectible rings, score, speed. Give
+                  the user a reason to keep flying around.
+      "training"  the mental-command recording screens — no rings, no score, no
+                  scoreboard. Chasing a target while trying to hold a steady
+                  mental state is exactly the wrong thing to ask for, and the
+                  EEG picks up that split attention. Just the drone and a cue
+                  for the action being recorded.
+    """
+
+    GAME = "game"
+    TRAINING = "training"
+
+    def __init__(self, main_app=None, parent=None, mode: str = GAME):
         super().__init__(parent)
         self.main_app = main_app
+        self.mode = mode
         self.setMinimumSize(400, 300)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.drone_x = 0.0
@@ -215,67 +282,143 @@ class DroneSimulatorWidget(QWidget):
         self.yaw = 0.0
         self.pitch = 0.0
         self.roll = 0.0
-        
+        self.speed = 0.0
+
         self.score = 0
         self.coins = []
         self.coin_counter = 1
-        self.spawn_coin()
-        
+        self.particles = []
+        self.combo_flash = 0.0
+        if self.mode == self.GAME:
+            self.spawn_coin()
+
+        # Which action the user is recording right now; drives the on-screen cue.
+        self.training_cue = None
+
+        self._phase = 0.0          # propeller spin / idle bob
+        self._idle_bob = 0.0
+
         from PyQt6.QtGui import QPixmap
         self.bg_image = QPixmap(resource_path("bg.png"))
 
+        # Own animation clock. Without it the neutral training screen would be a
+        # frozen still — nothing calls update_rc there.
+        self._anim = QTimer(self)
+        self._anim.timeout.connect(self._animate)
+
+    # ── Animation lifecycle ──────────────────────────────────────────────────
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._anim.start(33)  # ~30 FPS
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._anim.stop()
+
+    def _animate(self):
+        self._phase += 0.55
+        self._idle_bob += 0.045
+        self.combo_flash = max(0.0, self.combo_flash - 0.04)
+
+        for coin in self.coins:
+            coin[3] = (coin[3] + 3) % 360
+
+        # Particles: rise, drift outward, fade.
+        alive = []
+        for p in self.particles:
+            p["life"] -= 0.035
+            if p["life"] > 0:
+                p["x"] += p["vx"]
+                p["y"] += p["vy"]
+                p["z"] += p["vz"]
+                p["vy"] -= 0.25
+                alive.append(p)
+        self.particles = alive
+
+        self.update()
+
+    def set_training_cue(self, cue):
+        """'neutral', 'push' or None — shown as a hint over the scene."""
+        self.training_cue = cue
+        self.update()
+
+    def reset_flight(self):
+        """Put the drone back at the origin between training takes."""
+        self.drone_x = self.drone_z = 0.0
+        self.drone_y = 20.0
+        self.yaw = self.pitch = self.roll = 0.0
+        self.speed = 0.0
+        self.particles.clear()
+        self.update()
+
+    # ── Simulation ───────────────────────────────────────────────────────────
     def spawn_coin(self):
-        import random
         rad = math.radians(self.yaw)
         dist = random.uniform(150, 400)
         offset = random.uniform(-120, 120)
-        
+
         # Forward vector is (sin, -cos), Right vector is (cos, sin)
         cx = self.drone_x + math.sin(rad) * dist + math.cos(rad) * offset
         cz = self.drone_z - math.cos(rad) * dist + math.sin(rad) * offset
         cy = random.uniform(15, 80)
-        
+
         self.coins.append([cx, cy, cz, random.uniform(0, 360), self.coin_counter])
         self.coin_counter += 1
-        
+
+    def _burst(self, x, y, z):
+        """Confetti where a ring was collected."""
+        for _ in range(18):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(1.5, 5.0)
+            self.particles.append({
+                "x": x, "y": y, "z": z,
+                "vx": math.cos(angle) * speed,
+                "vy": random.uniform(2.0, 6.0),
+                "vz": math.sin(angle) * speed,
+                "life": 1.0,
+                "hue": random.choice(["#f1c40f", "#ffd966", "#ffffff", "#58a6ff"]),
+            })
+
     def update_rc(self, lr, fb, ud, yaw):
         speed_factor = 0.8
         rot_factor = 0.15
-        
+
         self.yaw += yaw * rot_factor
-        
+
         # Dynamic pitch and roll based on joystick inputs to make it look alive
         self.pitch = -fb * 0.3
         self.roll = -lr * 0.3
-        
+
         rad = math.radians(self.yaw)
         # Tello fb forward is +Z in our local coords maybe? Let's say Z is backward, so -Z is forward
         dz = -fb * math.cos(rad) * speed_factor + lr * math.sin(rad) * speed_factor
         dx = fb * math.sin(rad) * speed_factor + lr * math.cos(rad) * speed_factor
         dy = ud * speed_factor
-        
+
         self.drone_x += dx
         self.drone_y += dy
         self.drone_z += dz
-        
+        self.speed = math.sqrt(dx * dx + dy * dy + dz * dz)
+
         # Bounding box for altitude only (infinite X and Z!)
         self.drone_y = max(5, min(1000, self.drone_y))
-        
-        # Coin collection logic
-        collected = []
-        for coin in self.coins:
-            cx, cy, cz, rot, num = coin
-            dist = math.sqrt((self.drone_x - cx)**2 + (self.drone_y - cy)**2 + (self.drone_z - cz)**2)
-            if dist < 100:  # Huge hitbox for easier collection
-                collected.append(coin)
-                self.score += 10
-            else:
-                coin[3] = (coin[3] + 4) % 360  # Spin animation
-                
-        for c in collected:
-            self.coins.remove(c)
-            self.spawn_coin()
-        
+
+        # Coin collection logic — game mode only.
+        if self.mode == self.GAME:
+            collected = []
+            for coin in self.coins:
+                cx, cy, cz, rot, num = coin
+                dist = math.sqrt((self.drone_x - cx)**2 + (self.drone_y - cy)**2 + (self.drone_z - cz)**2)
+                if dist < 100:  # Huge hitbox for easier collection
+                    collected.append(coin)
+                    self.score += 10
+                    self.combo_flash = 1.0
+                    self._burst(cx, cy, cz)
+
+            for c in collected:
+                self.coins.remove(c)
+                self.spawn_coin()
+
         self.update()
 
     def rotate_3d(self, x, y, z, pitch, yaw, roll):
@@ -326,184 +469,560 @@ class DroneSimulatorWidget(QWidget):
         py = (-y_cam * f) / abs(z_depth) + self.height() / 2 # Invert Y for screen coords
         return px, py, abs(z_depth)
 
+    # ── Rendering ────────────────────────────────────────────────────────────
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#0d1117"))
-        
-        # Calculate true mathematical 3D horizon based on 5 degree camera pitch
+
+        # True mathematical 3D horizon for the 5 degree camera pitch
         horizon_y = int(-math.tan(math.radians(5)) * 400 + self.height() / 2)
-        
-        # Draw infinite panning mountain skybox
+
+        self._paint_sky(painter, horizon_y)
+        self._paint_ground(painter, horizon_y)
+        if self.mode == self.GAME:
+            self._paint_coins(painter)
+        self._paint_particles(painter)
+        self._paint_drone(painter)
+        self._paint_training_cue(painter)
+        self._paint_hud(painter)
+        self._paint_mental_command(painter)
+
+    def _paint_sky(self, painter, horizon_y):
+        sky = QLinearGradient(0, 0, 0, max(horizon_y, 1))
+        sky.setColorAt(0.0, QColor("#070b14"))
+        sky.setColorAt(0.55, QColor("#132038"))
+        sky.setColorAt(1.0, QColor("#2b4468"))
+        painter.fillRect(0, 0, self.width(), max(horizon_y, 0), QBrush(sky))
+
+        # Mountains pan as you yaw (parallax effect)
         if not self.bg_image.isNull():
-            target_h = self.height()
-            scaled_bg = self.bg_image.scaledToHeight(target_h, Qt.TransformationMode.SmoothTransformation)
+            scaled_bg = self.bg_image.scaledToHeight(
+                self.height(), Qt.TransformationMode.SmoothTransformation)
             sw = scaled_bg.width()
-            
-            # Mountains pan as you yaw (parallax effect)
-            pan_speed = 2.0
-            offset_x = int(((self.yaw % 360) / 360.0) * sw * pan_speed) % sw
-            
+            offset_x = int(((self.yaw % 360) / 360.0) * sw * 2.0) % sw
+            painter.setOpacity(0.85)
             curr_x = -offset_x
             while curr_x < self.width():
                 painter.drawPixmap(curr_x, 0, scaled_bg)
                 curr_x += sw
-                
-        # Fill solid ground to hide the underground mountains
-        painter.fillRect(0, horizon_y, self.width(), self.height() - horizon_y, QColor("#1e242c"))
-        
-        # Draw 3D Grid floor (Y = 0)
-        painter.setPen(QPen(QColor("#2d333b"), 1))
-        
-        # Infinite sliding floor grid centered on the drone
+            painter.setOpacity(1.0)
+
+        # Warm haze right at the horizon so sky and ground do not butt together
+        haze = QLinearGradient(0, horizon_y - 60, 0, horizon_y + 10)
+        haze.setColorAt(0.0, QColor(88, 166, 255, 0))
+        haze.setColorAt(1.0, QColor(120, 180, 255, 70))
+        painter.fillRect(0, horizon_y - 60, self.width(), 70, QBrush(haze))
+
+    def _paint_ground(self, painter, horizon_y):
+        ground = QLinearGradient(0, horizon_y, 0, self.height())
+        ground.setColorAt(0.0, QColor("#1a2430"))
+        ground.setColorAt(1.0, QColor("#080b10"))
+        painter.fillRect(0, horizon_y, self.width(),
+                         self.height() - horizon_y, QBrush(ground))
+
+        # Infinite sliding floor grid centered on the drone. Lines fade with
+        # distance instead of all being the same flat grey — that alone is most
+        # of the depth cue.
         grid_size = 800
         step = 40
         start_x = int(self.drone_x // step) * step - grid_size // 2
         start_z = int(self.drone_z // step) * step - grid_size // 2
-        
-        for i in range(0, grid_size + 1, step):
-            gx = start_x + i
-            gz = start_z + i
-            
-            p1x, p1y, _ = self.project(gx, 0, start_z)
-            p2x, p2y, _ = self.project(gx, 0, start_z + grid_size)
+
+        def grid_line(ax, az, bx, bz):
+            p1x, p1y, d1 = self.project(ax, 0, az)
+            p2x, p2y, d2 = self.project(bx, 0, bz)
+            depth = (d1 + d2) / 2
+            alpha = int(max(0, min(150, 26000 / (depth + 60) - 20)))
+            if alpha <= 2:
+                return
+            painter.setPen(QPen(QColor(88, 166, 255, alpha), 1))
             painter.drawLine(int(p1x), int(p1y), int(p2x), int(p2y))
-            
-            p3x, p3y, _ = self.project(start_x, 0, gz)
-            p4x, p4y, _ = self.project(start_x + grid_size, 0, gz)
-            painter.drawLine(int(p3x), int(p3y), int(p4x), int(p4y))
-            
-        # Drone geometry in local space
-        arms = [
-            (25, 0, -25, "#e74c3c"),  # Front Right (Red)
-            (-25, 0, -25, "#e74c3c"), # Front Left (Red)
-            (25, 0, 25, "#3498db"),   # Back Right (Blue)
-            (-25, 0, 25, "#3498db")   # Back Left (Blue)
-        ]
-        
-        # Get center projection
-        cx, cy, cz = self.rotate_3d(0, 0, 0, self.pitch, self.yaw, self.roll)
-        c_px, c_py, c_depth = self.project(cx + self.drone_x, cy + self.drone_y, cz + self.drone_z)
-        
-        # Draw vertical line to ground to show altitude
-        gx, gy, _ = self.project(self.drone_x, 0, self.drone_z)
-        painter.setPen(QPen(QColor("#58a6ff"), 1, Qt.PenStyle.DashLine))
-        painter.drawLine(int(c_px), int(c_py), int(gx), int(gy))
-        
-        # Draw arms and props
-        for ax, ay, az, color in arms:
-            rx, ry, rz = self.rotate_3d(ax, ay, az, self.pitch, self.yaw, self.roll)
-            wx = rx + self.drone_x
-            wy = ry + self.drone_y
-            wz = rz + self.drone_z
-            px, py, depth = self.project(wx, wy, wz)
-            
-            # Arm line
-            painter.setPen(QPen(QColor("#aaaaaa"), 3))
-            painter.drawLine(int(c_px), int(c_py), int(px), int(py))
-            
-            # Propeller
-            size = max(2, int(6000 / (depth + 100))) # Scale by depth
+
+        for i in range(0, grid_size + 1, step):
+            grid_line(start_x + i, start_z, start_x + i, start_z + grid_size)
+            grid_line(start_x, start_z + i, start_x + grid_size, start_z + i)
+
+        # Pool of light directly under the drone
+        gx, gy, gd = self.project(self.drone_x, 0, self.drone_z)
+        if gd > 1.0:
+            r = max(12, int(9000 / (gd + 100)))
+            glow = QRadialGradient(QPointF(gx, gy), r)
+            glow.setColorAt(0.0, QColor(88, 166, 255, 60))
+            glow.setColorAt(1.0, QColor(88, 166, 255, 0))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(color))
-            painter.drawEllipse(int(px - size/2), int(py - size/2), size, size)
-            
-        # Draw central body box
-        painter.setBrush(QColor("#ffffff"))
-        b_size = max(5, int(10000 / (c_depth + 100)))
-        painter.drawRect(int(c_px - b_size/2), int(c_py - b_size/2), b_size, b_size)
-        
-        # Draw collectible coins
+            painter.setBrush(QBrush(glow))
+            painter.drawEllipse(QPointF(gx, gy), r, r * 0.45)
+
+    def _paint_coins(self, painter):
         for cx, cy, cz, rot, num in self.coins:
             px, py, depth = self.project(cx, cy, cz)
-            if depth <= 1.0: 
-                continue # Hide coin if it's perfectly behind the camera
-                
-            size = max(10, int(12000 / (depth + 100))) # Make coins visually larger
-            
-            # Hover bounce effect
+            if depth <= 1.0:
+                continue  # behind the camera
+
+            size = max(10, int(12000 / (depth + 100)))
             bounce = math.sin(math.radians(rot)) * 10
             py += bounce * (400 / (depth + 100))
-            
-            # Tether line to ground
+
+            # Tether line to the ground so its position reads in 3D
             gx, gy, g_depth = self.project(cx, 0, cz)
             if g_depth > 1.0:
-                painter.setPen(QPen(QColor("#f39c12"), 1, Qt.PenStyle.DotLine))
+                painter.setPen(QPen(QColor(243, 156, 18, 90), 1, Qt.PenStyle.DotLine))
                 painter.drawLine(int(px), int(py), int(gx), int(gy))
-            
-            # Golden coin outer body
-            painter.setPen(QPen(QColor("#d4af37"), max(1, size//10)))
-            painter.setBrush(QColor("#f1c40f"))
-            painter.drawEllipse(int(px - size/2), int(py - size/2), size, size)
-            
-            # Inner circle (Coin edge detail)
-            painter.setPen(QPen(QColor("#d4af37"), 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(int(px - size/3), int(py - size/3), size*2//3, size*2//3)
-            
-            # Number inside coin
-            painter.setPen(QColor("#b8860b"))
-            font = painter.font()
-            font.setPointSize(max(6, size // 2))
-            font.setBold(True)
-            painter.setFont(font)
-            text = str(num)
-            metrics = painter.fontMetrics()
-            tw = metrics.horizontalAdvance(text)
-            th = metrics.capHeight()
-            painter.drawText(int(px - tw/2), int(py + th/2), text)
 
-        # Draw Score HUD
-        painter.setPen(QColor("#f1c40f"))
+            # Halo
+            halo = QRadialGradient(QPointF(px, py), size * 1.5)
+            halo.setColorAt(0.0, QColor(241, 196, 15, 110))
+            halo.setColorAt(1.0, QColor(241, 196, 15, 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(halo))
+            painter.drawEllipse(QPointF(px, py), size * 1.5, size * 1.5)
+
+            # The ring itself, squashed as it spins for a bit of 3D
+            squash = abs(math.cos(math.radians(rot))) * 0.75 + 0.25
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor("#f1c40f"), max(2, size // 6)))
+            painter.drawEllipse(QPointF(px, py), size / 2 * squash, size / 2)
+            painter.setPen(QPen(QColor(255, 240, 180, 200), max(1, size // 14)))
+            painter.drawEllipse(QPointF(px, py), size / 2.6 * squash, size / 2.6)
+
+            # Number, only while the ring is wide enough to hold it
+            if squash > 0.55 and size > 18:
+                painter.setPen(QColor("#ffe9a8"))
+                font = painter.font()
+                font.setPointSize(max(6, size // 3))
+                font.setBold(True)
+                painter.setFont(font)
+                text = str(num)
+                metrics = painter.fontMetrics()
+                painter.drawText(int(px - metrics.horizontalAdvance(text) / 2),
+                                 int(py + metrics.capHeight() / 2), text)
+
+    def _paint_particles(self, painter):
+        painter.setPen(Qt.PenStyle.NoPen)
+        for p in self.particles:
+            px, py, depth = self.project(p["x"], p["y"], p["z"])
+            if depth <= 1.0:
+                continue
+            size = max(2, int(2200 / (depth + 100)))
+            color = QColor(p["hue"])
+            color.setAlpha(int(230 * p["life"]))
+            painter.setBrush(color)
+            painter.drawEllipse(QPointF(px, py), size / 2, size / 2)
+
+    def _paint_drone(self, painter):
+        arms = [
+            (25, 0, -25, "#ff7b72"),   # Front Right
+            (-25, 0, -25, "#ff7b72"),  # Front Left
+            (25, 0, 25, "#58a6ff"),    # Back Right
+            (-25, 0, 25, "#58a6ff"),   # Back Left
+        ]
+
+        # A hover bob keeps the drone alive even when it is not being flown.
+        bob = math.sin(self._idle_bob) * 1.6
+        cx, cy, cz = self.rotate_3d(0, 0, 0, self.pitch, self.yaw, self.roll)
+        c_px, c_py, c_depth = self.project(
+            cx + self.drone_x, cy + self.drone_y + bob, cz + self.drone_z)
+
+        # Ground shadow, tighter and darker the lower the drone flies
+        gx, gy, gd = self.project(self.drone_x, 0, self.drone_z)
+        if gd > 1.0:
+            altitude_factor = max(0.25, min(1.0, 60.0 / max(self.drone_y, 1)))
+            sr = max(6, int(5200 / (gd + 100))) * altitude_factor
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(0, 0, 0, int(120 * altitude_factor)))
+            painter.drawEllipse(QPointF(gx, gy), sr, sr * 0.4)
+
+        # Altitude tether
+        painter.setPen(QPen(QColor(88, 166, 255, 90), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(int(c_px), int(c_py), int(gx), int(gy))
+
+        for ax, ay, az, color in arms:
+            rx, ry, rz = self.rotate_3d(ax, ay, az, self.pitch, self.yaw, self.roll)
+            px, py, depth = self.project(
+                rx + self.drone_x, ry + self.drone_y + bob, rz + self.drone_z)
+
+            painter.setPen(QPen(QColor("#8b949e"), max(2, int(900 / (depth + 100)))))
+            painter.drawLine(int(c_px), int(c_py), int(px), int(py))
+
+            size = max(4, int(6000 / (depth + 100)))
+            centre = QPointF(px, py)
+
+            # Motor housing
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(centre, size * 0.22, size * 0.22)
+
+            # Spinning blade disc: a faint filled circle plus two arcs that
+            # actually rotate, which reads as motion far better than a dot.
+            disc = QColor(color)
+            disc.setAlpha(45)
+            painter.setBrush(disc)
+            painter.drawEllipse(centre, size * 0.6, size * 0.6)
+
+            blade = QColor(color)
+            blade.setAlpha(190)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(blade, max(1, size // 8)))
+            rect = QRectF(px - size * 0.6, py - size * 0.6, size * 1.2, size * 1.2)
+            spin = int(self._phase * 16) % 360
+            painter.drawArc(rect, spin * 16, 70 * 16)
+            painter.drawArc(rect, (spin + 180) * 16, 70 * 16)
+
+        # Body: rounded, with a nose marker so heading is readable
+        b = max(6, int(9000 / (c_depth + 100)))
+        body = QLinearGradient(c_px - b / 2, c_py - b / 2, c_px + b / 2, c_py + b / 2)
+        body.setColorAt(0.0, QColor("#f0f6fc"))
+        body.setColorAt(1.0, QColor("#8b949e"))
+        painter.setPen(QPen(QColor("#0d1117"), 1))
+        painter.setBrush(QBrush(body))
+        painter.drawRoundedRect(QRectF(c_px - b / 2, c_py - b / 2, b, b), b / 4, b / 4)
+
+        nx, ny, nz = self.rotate_3d(0, 0, -34, self.pitch, self.yaw, self.roll)
+        npx, npy, _ = self.project(
+            nx + self.drone_x, ny + self.drone_y + bob, nz + self.drone_z)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#3fb950"))
+        painter.drawEllipse(QPointF(npx, npy), max(2, b / 6), max(2, b / 6))
+
+    def _paint_training_cue(self, painter):
+        """Calm, non-competitive hint about the action being recorded."""
+        if self.mode != self.TRAINING or not self.training_cue:
+            return
+
+        cx = self.width() / 2
+        cy = self.height() / 2
+        pulse = (math.sin(self._idle_bob * 2.2) + 1) / 2
+
+        if self.training_cue == "neutral":
+            # Breathing ring: something to settle your eyes on, nothing to chase.
+            radius = 70 + pulse * 18
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(63, 185, 80, int(70 + pulse * 90)), 2))
+            painter.drawEllipse(QPointF(cx, cy), radius, radius)
+            painter.setPen(QPen(QColor(63, 185, 80, 40), 1))
+            painter.drawEllipse(QPointF(cx, cy), radius * 1.35, radius * 1.35)
+            label, colour = t("cue.neutral"), QColor("#3fb950")
+        else:
+            # Chevrons marching away from the viewer.
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for i in range(3):
+                offset = ((self._idle_bob * 26) + i * 34) % 102
+                alpha = int(200 * (1 - offset / 102))
+                painter.setPen(QPen(QColor(88, 166, 255, alpha), 3))
+                y = cy + 60 - offset
+                painter.drawPolyline(QPolygonF([
+                    QPointF(cx - 34, y + 16), QPointF(cx, y), QPointF(cx + 34, y + 16),
+                ]))
+            label, colour = t("cue.push"), QColor("#58a6ff")
+
         font = painter.font()
-        font.setPointSize(16)
+        font.setPointSize(13)
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(15, 30, t("sim.score", score=self.score))
+        metrics = painter.fontMetrics()
+        tw = metrics.horizontalAdvance(label)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(13, 17, 23, 170))
+        painter.drawRoundedRect(QRectF(cx - tw / 2 - 14, self.height() - 54,
+                                       tw + 28, 30), 15, 15)
+        painter.setPen(colour)
+        painter.drawText(int(cx - tw / 2), self.height() - 33, label)
 
-        # Draw ESC prompt if fullscreen
-        if self.isFullScreen():
-            painter.setPen(QColor("#ffffff"))
-            font.setPointSize(12)
+    def _paint_hud(self, painter):
+        font = painter.font()
+        font.setBold(True)
+
+        if self.mode == self.GAME:
+            # Score card. It swells briefly on pickup.
+            swell = 1.0 + self.combo_flash * 0.25
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(13, 17, 23, 165))
+            painter.drawRoundedRect(QRectF(14, 14, 168, 62), 10, 10)
+            painter.setPen(QPen(QColor(241, 196, 15, int(60 + 160 * self.combo_flash)), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(QRectF(14, 14, 168, 62), 10, 10)
+
+            font.setPointSize(int(17 * swell))
             painter.setFont(font)
-            painter.drawText(15, 60, t("sim.esc_hint"))
+            painter.setPen(QColor("#f1c40f"))
+            painter.drawText(28, 44, t("sim.score", score=self.score))
 
-        # Draw Mental Command Visual Feedback
-        if self.main_app and self.main_app.drone_client and getattr(self.main_app.drone_client, 'drone', None):
-            action = getattr(self.main_app.drone_client.drone, 'last_executed_action', None)
-            action_time = getattr(self.main_app.drone_client.drone, 'last_action_time', 0.0)
-            now = time.time()
-            if action and (now - action_time) < 2.0:
-                # Fade out over 2 seconds
-                alpha = int(255 * (1.0 - (now - action_time) / 2.0))
-                if alpha > 0:
-                    text = t("sim.mental_command", action=action.upper())
-                    font.setPointSize(24)
-                    font.setBold(True)
-                    painter.setFont(font)
-                    metrics = painter.fontMetrics()
-                    tw = metrics.horizontalAdvance(text)
-                    th = metrics.capHeight()
-                    
-                    # Draw glowing background
-                    bx = self.width() // 2 - tw // 2 - 20
-                    by = 20
-                    bw = tw + 40
-                    bh = th + 20
-                    
-                    bg_color = QColor(88, 166, 255, alpha // 2)
-                    painter.setBrush(bg_color)
-                    painter.setPen(QPen(QColor(88, 166, 255, alpha), 2))
-                    painter.drawRoundedRect(bx, by, bw, bh, 8, 8)
-                    
-                    # Draw text
-                    painter.setPen(QColor(255, 255, 255, alpha))
-                    painter.drawText(bx + 20, by + bh - 10, text)
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.setPen(QColor("#8b949e"))
+            painter.drawText(28, 66, t("sim.readout",
+                                       alt=int(self.drone_y),
+                                       spd=f"{self.speed:.1f}"))
+        else:
+            # Training: altitude only, small and out of the way.
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.setPen(QColor(139, 148, 158, 200))
+            painter.drawText(20, 30, t("sim.altitude", alt=int(self.drone_y)))
+
+        if self.isFullScreen():
+            font.setPointSize(11)
+            font.setBold(False)
+            painter.setFont(font)
+            painter.setPen(QColor(255, 255, 255, 150))
+            painter.drawText(self.width() - 210, 30, t("sim.esc_hint"))
+
+    def _paint_mental_command(self, painter):
+        if not (self.main_app and self.main_app.drone_client
+                and getattr(self.main_app.drone_client, 'drone', None)):
+            return
+
+        action = getattr(self.main_app.drone_client.drone, 'last_executed_action', None)
+        action_time = getattr(self.main_app.drone_client.drone, 'last_action_time', 0.0)
+        elapsed = time.time() - action_time
+        if not action or elapsed >= 2.0:
+            return
+
+        alpha = int(255 * (1.0 - elapsed / 2.0))
+        if alpha <= 0:
+            return
+
+        text = t("sim.mental_command", action=action.upper())
+        font = painter.font()
+        font.setPointSize(20)
+        font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        tw = metrics.horizontalAdvance(text)
+        th = metrics.capHeight()
+
+        bx = self.width() // 2 - tw // 2 - 22
+        bw = tw + 44
+        bh = th + 24
+        rect = QRectF(bx, 20, bw, bh)
+
+        # It slides down a touch as it fades, so repeated commands read as
+        # separate events instead of one flicker. save/restore rather than
+        # resetTransform, which would also drop the device pixel ratio.
+        painter.save()
+        painter.translate(0, (1.0 - alpha / 255) * 6)
+        painter.setBrush(QColor(31, 111, 235, alpha // 3))
+        painter.setPen(QPen(QColor(88, 166, 255, alpha), 2))
+        painter.drawRoundedRect(rect, bh / 2, bh / 2)
+        painter.setPen(QColor(255, 255, 255, alpha))
+        painter.drawText(int(bx + 22), int(20 + bh - 9), text)
+        painter.restore()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             if self.main_app:
                 self.main_app.toggle_fullscreen()
+
+
+class BrainMapWidget(QWidget):
+    """Scatter plot of mentalCommandBrainMap.
+
+    Cortex returns one (x, y) per trained action, x in [-1, 1] and y in [0, 1].
+    The distance between two points is how distinguishable those two mental
+    states were in the training data — points on top of each other mean Cortex
+    keeps mixing them up, so the plot doubles as the "is my training any good?"
+    answer.
+    """
+
+    ACTION_COLOURS = {
+        "neutral": "#8b949e",
+        "push": "#58a6ff",
+        "pull": "#bc8cff",
+        "lift": "#3fb950",
+        "drop": "#f0883e",
+        "left": "#39c5cf",
+        "right": "#db61a2",
+        "rotateLeft": "#e3b341",
+        "rotateRight": "#ff7b72",
+        "disappear": "#a371f7",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(320)
+        self.points = []          # [(action, x, y), ...]
+        self._reveal = 0.0        # 0 → 1 grow-in animation
+
+        self._anim = QTimer(self)
+        self._anim.timeout.connect(self._grow)
+
+    def set_points(self, data):
+        """Feed the raw Cortex result straight in."""
+        self.points = []
+        for entry in data or []:
+            coords = entry.get("coordinates") or [0, 0]
+            if len(coords) >= 2:
+                self.points.append((entry.get("action", "?"),
+                                    float(coords[0]), float(coords[1])))
+        self._reveal = 0.0
+        self._anim.start(16)
+        self.update()
+
+    def _grow(self):
+        self._reveal = min(1.0, self._reveal + 0.05)
+        if self._reveal >= 1.0:
+            self._anim.stop()
+        self.update()
+
+    def separation(self):
+        """Smallest gap between any two actions — the number that matters.
+
+        Returns None when there are fewer than two points, since "separation"
+        is meaningless for a single action.
+        """
+        if len(self.points) < 2:
+            return None
+        gaps = []
+        for i in range(len(self.points)):
+            for j in range(i + 1, len(self.points)):
+                _, x1, y1 = self.points[i]
+                _, x2, y2 = self.points[j]
+                gaps.append(math.hypot(x2 - x1, y2 - y1))
+        return min(gaps)
+
+    def quality_key(self):
+        """Translate the smallest gap into a verdict the user can act on."""
+        gap = self.separation()
+        if gap is None:
+            return "brainmap.quality.unknown", "#8b949e"
+        if gap < 0.15:
+            return "brainmap.quality.poor", "#f85149"
+        if gap < 0.35:
+            return "brainmap.quality.fair", "#e3a01a"
+        return "brainmap.quality.good", "#3fb950"
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pad = 44
+        w = self.width() - pad * 2
+        h = self.height() - pad * 2
+        if w <= 10 or h <= 10:
+            return
+
+        # Plot surface, a shade off the page so the chart reads as its own panel
+        painter.setPen(QPen(QColor("#30363d"), 1))
+        painter.setBrush(QColor("#0b0f15"))
+        painter.drawRoundedRect(QRectF(pad, pad, w, h), 10, 10)
+
+        def to_screen(x, y):
+            # x in [-1, 1] → left..right, y in [0, 1] → bottom..top
+            return (pad + (x + 1) / 2 * w, pad + (1 - y) * h)
+
+        # Grid
+        painter.setPen(QPen(QColor("#21262d"), 1))
+        for frac in (0.25, 0.5, 0.75):
+            painter.drawLine(int(pad + frac * w), int(pad),
+                             int(pad + frac * w), int(pad + h))
+            painter.drawLine(int(pad), int(pad + frac * h),
+                             int(pad + w), int(pad + frac * h))
+
+        # Centre axis, where "neutral" sits
+        painter.setPen(QPen(QColor("#30363d"), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(int(pad + w / 2), int(pad), int(pad + w / 2), int(pad + h))
+
+        if not self.points:
+            painter.setPen(QColor("#8b949e"))
+            painter.drawText(QRectF(pad, pad, w, h),
+                             Qt.AlignmentFlag.AlignCenter, t("brainmap.empty"))
+            return
+
+        # Faint lines between every pair, so "these two are too close" is visible
+        # rather than something the user has to eyeball.
+        for i in range(len(self.points)):
+            for j in range(i + 1, len(self.points)):
+                _, x1, y1 = self.points[i]
+                _, x2, y2 = self.points[j]
+                gap = math.hypot(x2 - x1, y2 - y1)
+                if gap > 0.35:
+                    continue  # well separated, no need to call it out
+                sx1, sy1 = to_screen(x1, y1)
+                sx2, sy2 = to_screen(x2, y2)
+                colour = QColor("#f85149" if gap < 0.15 else "#e3a01a")
+                colour.setAlpha(120)
+                painter.setPen(QPen(colour, 1, Qt.PenStyle.DashLine))
+                painter.drawLine(int(sx1), int(sy1), int(sx2), int(sy2))
+
+        font = painter.font()
+        font.setPointSize(11)
+        font.setBold(True)
+        painter.setFont(font)
+
+        # Dots first, then labels — otherwise a later halo washes out an earlier
+        # label, which is exactly what happens in the clustered (bad) case.
+        placed = []
+        metrics = painter.fontMetrics()
+
+        for action, x, y in self.points:
+            sx, sy = to_screen(x, y)
+            colour = QColor(self.ACTION_COLOURS.get(action, "#58a6ff"))
+            r = 11 * self._reveal
+
+            halo = QRadialGradient(QPointF(sx, sy), max(r * 3, 1))
+            halo_colour = QColor(colour)
+            halo_colour.setAlpha(70)
+            halo.setColorAt(0.0, halo_colour)
+            halo_colour.setAlpha(0)
+            halo.setColorAt(1.0, halo_colour)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(halo))
+            painter.drawEllipse(QPointF(sx, sy), r * 3, r * 3)
+
+            painter.setBrush(colour)
+            painter.setPen(QPen(QColor("#0d1117"), 2))
+            painter.drawEllipse(QPointF(sx, sy), r, r)
+
+        for action, x, y in self.points:
+            sx, sy = to_screen(x, y)
+            colour = QColor(self.ACTION_COLOURS.get(action, "#58a6ff"))
+            label = t(f"action.{action}") if i18n.has(f"action.{action}") else action
+            tw = metrics.horizontalAdvance(label)
+            th = metrics.height()
+
+            # Try positions around the dot until one is clear of every label
+            # already drawn and still inside the plot.
+            candidates = [(18, 4), (-18 - tw, 4), (-tw / 2, -20),
+                          (-tw / 2, 26), (18, -18), (18, 24)]
+            spot = None
+            for dx, dy in candidates:
+                rect = QRectF(sx + dx, sy + dy - th + 4, tw, th)
+                if rect.left() < pad or rect.right() > pad + w:
+                    continue
+                if rect.top() < pad or rect.bottom() > pad + h:
+                    continue
+                if any(rect.intersects(other) for other in placed):
+                    continue
+                spot = rect
+                break
+            if spot is None:
+                spot = QRectF(sx + 18, sy - th + 8, tw, th)
+            placed.append(spot)
+
+            # Leader line when the label had to move away from its dot.
+            if abs(spot.left() - sx) > 26 or abs(spot.center().y() - sy) > 16:
+                painter.setPen(QPen(QColor(110, 118, 129, 160), 1))
+                painter.drawLine(int(sx), int(sy),
+                                 int(spot.center().x()), int(spot.center().y()))
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(13, 17, 23, 210))
+            painter.drawRoundedRect(spot.adjusted(-5, -2, 5, 2), 5, 5)
+            painter.setPen(colour)
+            painter.drawText(spot, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             label)
+
+        # Axis captions
+        font.setPointSize(9)
+        font.setBold(False)
+        painter.setFont(font)
+        painter.setPen(QColor("#6e7681"))
+        painter.drawText(int(pad), int(pad + h + 22), t("brainmap.axis_x"))
+        painter.save()
+        painter.translate(int(pad) - 14, int(pad + h))
+        painter.rotate(-90)
+        painter.drawText(0, 0, t("brainmap.axis_y"))
+        painter.restore()
 
 
 class FullscreenHUDWidget(QWidget):
@@ -664,6 +1183,7 @@ class TelloControllerApp(QMainWindow):
     training_signal = pyqtSignal(str)
     dev_data_signal = pyqtSignal(int, list)
     mc_config_signal = pyqtSignal(dict)
+    brainmap_signal = pyqtSignal(list)
     
     def __init__(self):
         super().__init__()
@@ -688,6 +1208,7 @@ class TelloControllerApp(QMainWindow):
         self.training_signal.connect(self._on_training_update)
         self.dev_data_signal.connect(self._on_dev_data_update)
         self.mc_config_signal.connect(self._on_mc_config_update)
+        self.brainmap_signal.connect(self._on_brain_map)
 
         self.stdout_stream = EmittingStream()
         self.stdout_stream.textWritten.connect(self.log_signal.emit)
@@ -738,6 +1259,7 @@ class TelloControllerApp(QMainWindow):
         self.setup_page_1()
         self.setup_page_2()
         self.setup_page_3()
+        self.setup_page_brainmap()
 
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
@@ -851,7 +1373,7 @@ class TelloControllerApp(QMainWindow):
         # Back button
         back_btn = QPushButton()
         bind(back_btn, "headset.back")
-        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_AUTH))
         c_layout.addWidget(back_btn)
 
         layout.addWidget(container)
@@ -930,13 +1452,13 @@ class TelloControllerApp(QMainWindow):
         btn_row = QHBoxLayout()
         back_btn = QPushButton()
         bind(back_btn, "profile.back")
-        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_HEADSET))
 
         self.p0_next_btn = QPushButton()
         bind(self.p0_next_btn, "profile.next")
         self.p0_next_btn.setObjectName("primaryBtn")
         self.p0_next_btn.setEnabled(False)
-        self.p0_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
+        self.p0_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_TEST))
         
         btn_row.addWidget(back_btn)
         btn_row.addWidget(self.p0_next_btn)
@@ -996,7 +1518,7 @@ class TelloControllerApp(QMainWindow):
         btn_row = QHBoxLayout()
         back_btn = QPushButton()
         bind(back_btn, "eq.back")
-        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_PROFILE))
 
         self.eq_next_btn = QPushButton()
         bind(self.eq_next_btn, "eq.next")
@@ -1017,10 +1539,17 @@ class TelloControllerApp(QMainWindow):
     def _begin_training_sequence(self, action):
         self.current_training_action = action
         if action == "neutral":
-            self.stacked_widget.setCurrentIndex(4)
+            self.stacked_widget.setCurrentIndex(PAGE_TRAIN_NEUTRAL)
+            self.neutral_sim.reset_flight()
         else:
-            self.stacked_widget.setCurrentIndex(5)
-            
+            self.stacked_widget.setCurrentIndex(PAGE_TRAIN_PUSH)
+            self.push_sim.reset_flight()
+
+        # A retry from the result screen leaves the old buttons showing.
+        for btn in (self.neutral_accept_btn, self.neutral_reject_btn,
+                    self.push_accept_btn, self.push_reject_btn, self.push_next_btn):
+            btn.hide()
+
         if not hasattr(self, "countdown_overlay"):
             self.countdown_overlay = QLabel(self.stacked_widget)
             self.countdown_overlay.setStyleSheet("font-size: 120px; font-weight: bold; color: rgba(255, 123, 114, 255); background-color: rgba(0, 0, 0, 150); border-radius: 20px;")
@@ -1097,7 +1626,8 @@ class TelloControllerApp(QMainWindow):
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
 
-        self.neutral_sim = DroneSimulatorWidget(self)
+        self.neutral_sim = DroneSimulatorWidget(self, mode=DroneSimulatorWidget.TRAINING)
+        self.neutral_sim.set_training_cue("neutral")
         self.neutral_sim.setMinimumSize(500, 350)
         layout.addWidget(self.neutral_sim, stretch=1)
 
@@ -1144,7 +1674,8 @@ class TelloControllerApp(QMainWindow):
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
         
-        self.push_sim = DroneSimulatorWidget(self)
+        self.push_sim = DroneSimulatorWidget(self, mode=DroneSimulatorWidget.TRAINING)
+        self.push_sim.set_training_cue("push")
         self.push_sim.setMinimumSize(500, 350)
         layout.addWidget(self.push_sim, stretch=1)
         
@@ -1174,7 +1705,7 @@ class TelloControllerApp(QMainWindow):
         self.push_next_btn = QPushButton()
         bind(self.push_next_btn, "train.finish")
         self.push_next_btn.setObjectName("primaryBtn")
-        self.push_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
+        self.push_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_TEST))
         self.push_next_btn.hide()
         
         btn_layout.addStretch()
@@ -1256,7 +1787,7 @@ class TelloControllerApp(QMainWindow):
 
         btn_row = QHBoxLayout()
         back_btn = bind(QPushButton(), "test.back")
-        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_PROFILE))
 
         fs_btn = bind(QPushButton(), "test.fullscreen")
         fs_btn.clicked.connect(self.toggle_fullscreen)
@@ -1265,7 +1796,7 @@ class TelloControllerApp(QMainWindow):
         self.recenter_btn_p1.setObjectName("blueBtn")
         self.recenter_btn_p1.clicked.connect(self.reset_headset)
         next_btn = bind(QPushButton(), "test.next"); next_btn.setObjectName("primaryBtn")
-        next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(7))
+        next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_DRONE))
         btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn); btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(next_btn)
         c_layout.addLayout(btn_row)
 
@@ -1300,7 +1831,7 @@ class TelloControllerApp(QMainWindow):
         c_layout.addWidget(self.p2_next_btn)
 
         back_btn = bind(QPushButton(), "drone.back")
-        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_TEST))
         c_layout.addWidget(back_btn)
 
         layout.addWidget(container)
@@ -1406,6 +1937,103 @@ class TelloControllerApp(QMainWindow):
         root.addLayout(right, stretch=1)
         self.stacked_widget.addWidget(page)
 
+    def setup_page_brainmap(self):
+        """Training result: the brain map, a verdict, and a way to redo it."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QWidget(); container.setFixedWidth(760)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(12)
+
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "brainmap.title")
+        c_layout.addWidget(title)
+
+        subtitle = bind(QLabel(), "brainmap.subtitle")
+        subtitle.setObjectName("subtitleLabel"); subtitle.setWordWrap(True)
+        c_layout.addWidget(subtitle)
+
+        self.brain_map = BrainMapWidget()
+        c_layout.addWidget(self.brain_map)
+
+        self.brainmap_verdict_lbl = bind(QLabel(), "brainmap.loading")
+        self.brainmap_verdict_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brainmap_verdict_lbl.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #8b949e; padding: 6px;")
+        c_layout.addWidget(self.brainmap_verdict_lbl)
+
+        self.brainmap_hint_lbl = QLabel()
+        self.brainmap_hint_lbl.setWordWrap(True)
+        self.brainmap_hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brainmap_hint_lbl.setStyleSheet("font-size: 13px; color: #8b949e;")
+        c_layout.addWidget(self.brainmap_hint_lbl)
+
+        btn_row = QHBoxLayout()
+        self.brainmap_retrain_btn = bind(QPushButton(), "brainmap.retrain")
+        self.brainmap_retrain_btn.clicked.connect(self._retrain_from_brainmap)
+
+        refresh_btn = bind(QPushButton(), "brainmap.refresh")
+        refresh_btn.clicked.connect(self._request_brain_map)
+
+        self.brainmap_next_btn = bind(QPushButton(), "brainmap.continue")
+        self.brainmap_next_btn.setObjectName("primaryBtn")
+        self.brainmap_next_btn.clicked.connect(
+            lambda: self.stacked_widget.setCurrentIndex(PAGE_TEST))
+
+        btn_row.addWidget(self.brainmap_retrain_btn)
+        btn_row.addWidget(refresh_btn)
+        btn_row.addWidget(self.brainmap_next_btn)
+        c_layout.addLayout(btn_row)
+
+        layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    def _request_brain_map(self):
+        if self.drone_client:
+            bind(self.brainmap_verdict_lbl, "brainmap.loading")
+            self.brainmap_verdict_lbl.setStyleSheet(
+                "font-size: 15px; font-weight: bold; color: #8b949e; padding: 6px;")
+            threading.Thread(target=self.drone_client.get_brain_map, daemon=True).start()
+
+    def _on_brain_map(self, data: list):
+        """Cortex answered mentalCommandBrainMap — plot it and grade it."""
+        self.brain_map.set_points(data)
+        key, colour = self.brain_map.quality_key()
+
+        gap = self.brain_map.separation()
+        if gap is None:
+            bind(self.brainmap_verdict_lbl, key)
+        else:
+            bind(self.brainmap_verdict_lbl, key)
+            self.brainmap_verdict_lbl.setText(
+                f"{t(key)}   ·   {t('brainmap.separation', gap=f'{gap:.2f}')}")
+        self.brainmap_verdict_lbl.setStyleSheet(
+            f"font-size: 15px; font-weight: bold; color: {colour}; padding: 6px;")
+
+        hint = {"brainmap.quality.good": "brainmap.hint.good",
+                "brainmap.quality.fair": "brainmap.hint.fair",
+                "brainmap.quality.poor": "brainmap.hint.poor"}.get(key)
+        if hint:
+            bind(self.brainmap_hint_lbl, hint)
+        else:
+            i18n.unbind(self.brainmap_hint_lbl)
+            self.brainmap_hint_lbl.setText("")
+
+        # Nudge, don't block: a poor result still lets the user carry on.
+        self.brainmap_next_btn.setObjectName(
+            "primaryBtn" if key != "brainmap.quality.poor" else "")
+        self.brainmap_retrain_btn.setObjectName(
+            "primaryBtn" if key == "brainmap.quality.poor" else "")
+        for btn in (self.brainmap_next_btn, self.brainmap_retrain_btn):
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+        self.log(t("log.brainmap_ready", quality=t(key)))
+
+    def _retrain_from_brainmap(self):
+        self._begin_training_sequence("neutral")
+
     def _start_bci(self):
         self.save_settings()
         from drone_controller import TelloDroneClient
@@ -1427,7 +2055,8 @@ class TelloControllerApp(QMainWindow):
             headsets_callback=self.update_headsets,
             training_callback=self.training_signal.emit,
             dev_data_callback=self.dev_data_signal.emit,
-            mc_config_callback=self.mc_config_signal.emit
+            mc_config_callback=self.mc_config_signal.emit,
+            brainmap_callback=self.brainmap_signal.emit
         )
 
         self.client_thread = threading.Thread(
@@ -1482,7 +2111,7 @@ class TelloControllerApp(QMainWindow):
         self.headset_group.setEnabled(True)
         self.log(t("log.headsets_available", count=len(headsets)))
         # Auto-advance to headset selection screen on successful authentication & headset query
-        self.stacked_widget.setCurrentIndex(1)
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
 
     def _connect_headset(self):
         """Connect to the selected headset."""
@@ -1624,8 +2253,8 @@ class TelloControllerApp(QMainWindow):
             self.profile_combo.setEnabled(True)
             bind(self.profile_status_lbl, "profile.session_active")
             # Auto-advance to profile selection screen only if still on auth/headset screens
-            if self.stacked_widget.currentIndex() <= 1:
-                self.stacked_widget.setCurrentIndex(2)
+            if self.stacked_widget.currentIndex() <= PAGE_HEADSET:
+                self.stacked_widget.setCurrentIndex(PAGE_PROFILE)
             # Enable Next for simulation; otherwise wait for profile load.
             is_sim = self.simulate_cb.isChecked()
             if is_sim:
@@ -1733,7 +2362,7 @@ class TelloControllerApp(QMainWindow):
             return
             
         self.current_training_action = "neutral"
-        self.stacked_widget.setCurrentIndex(3)
+        self.stacked_widget.setCurrentIndex(PAGE_EQ)
         self.drone_client.create_and_train_profile(new_name)
         
     def _on_training_accept(self, action: str):
@@ -1760,7 +2389,7 @@ class TelloControllerApp(QMainWindow):
         
     def _on_training_update(self, event: str):
         idx = self.stacked_widget.currentIndex()
-        if idx not in [4, 5]:
+        if idx not in (PAGE_TRAIN_NEUTRAL, PAGE_TRAIN_PUSH):
             return
             
         action = getattr(self, "current_training_action", "neutral")
@@ -1770,7 +2399,7 @@ class TelloControllerApp(QMainWindow):
         btn_rej = self.neutral_reject_btn if action == "neutral" else self.push_reject_btn
         
         if event.startswith("PROFILE_LOADED:"):
-            self.stacked_widget.setCurrentIndex(3)
+            self.stacked_widget.setCurrentIndex(PAGE_EQ)
             return
 
         event_lower = event.lower()
@@ -1799,12 +2428,15 @@ class TelloControllerApp(QMainWindow):
                 self.push_anim_timer.stop()
                 bind(lbl, "train.complete")
                 self.drone_client.save_profile()
-                self.push_next_btn.show()
+                # Straight to the result instead of a dead-end "done" message —
+                # the brain map is what tells the user whether to redo this.
+                self.stacked_widget.setCurrentIndex(PAGE_BRAINMAP)
+                QTimer.singleShot(900, self._request_brain_map)
 
     def _on_dev_data_update(self, signal: int, cq_list: list):
         """Update the EQ quality check screen with per-sensor contact quality."""
         # Only update when on the EQ check screen (index 3)
-        if self.stacked_widget.currentIndex() != 3:
+        if self.stacked_widget.currentIndex() != PAGE_EQ:
             return
 
         # Overall signal quality (0-4)
@@ -1963,7 +2595,7 @@ class TelloControllerApp(QMainWindow):
                 self.drone_client.drone.tello = self.tello
 
     def go_to_dashboard(self):
-        self.stacked_widget.setCurrentIndex(8)
+        self.stacked_widget.setCurrentIndex(PAGE_DASHBOARD)
         is_sim = self.simulate_cb.isChecked()
         bind(self.dash_drone_lbl, "dash.drone_sim" if is_sim else "dash.drone_connected")
         self.video_thread = VideoThread(tello=self.tello)
@@ -1972,11 +2604,11 @@ class TelloControllerApp(QMainWindow):
         self.video_thread.start()
 
     def update_telemetry(self):
-        if self.drone_client and self.stacked_widget.currentIndex() in [6, 8]:
+        if self.drone_client and self.stacked_widget.currentIndex() in (PAGE_TEST, PAGE_DASHBOARD):
             if self.drone_client and self.drone_client.drone:
                 lr, fb, ud, yaw = self.drone_client.drone.get_rc_values()
                 self.rc_lbl.setText(f"RC: lr={lr:+4d}  fb={fb:+4d}  ud={ud:+4d}  yaw={yaw:+4d}")
-                if self.stacked_widget.currentIndex() == 6:
+                if self.stacked_widget.currentIndex() == PAGE_TEST:
                     self.drone_sim.update_rc(lr, fb, ud, yaw)
                     self.test_yaw_bar.setValue(yaw)
                     self.test_fb_bar.setValue(fb)
@@ -2003,7 +2635,7 @@ class TelloControllerApp(QMainWindow):
             self.raw_com_lbl.setText(f"COM: {self.drone_client.latest_raw_com}")
 
         # Update Drone Dashboard Stats
-        if self.tello and self.stacked_widget.currentIndex() == 3:
+        if self.tello and self.stacked_widget.currentIndex() == PAGE_DASHBOARD:
             try:
                 bind(self.battery_lbl, "dash.battery", value=self.tello.get_battery())
                 bind(self.height_lbl, "dash.height", value=self.tello.get_height())
@@ -2031,7 +2663,7 @@ class TelloControllerApp(QMainWindow):
         if self.tello:
             threading.Thread(target=self._safe_land_and_end, daemon=True).start()
 
-        self.stacked_widget.setCurrentIndex(0)
+        self.stacked_widget.setCurrentIndex(PAGE_AUTH)
         self.log(t("log.disconnected"))
 
     def _safe_land_and_end(self):

@@ -182,11 +182,53 @@ I18N = {
         "dash.log": "📟 Log",
 
         # ── Simulator / HUD overlays ─────────────────────────────────────────
-        "sim.score": "🏆 SCORE: {score}",
+        "sim.score": "🏆 {score}",
+        "sim.readout": "ALT {alt}m   ·   SPD {spd}",
+        "sim.altitude": "ALT {alt}m",
         "sim.esc_hint": "Press ESC to exit fullscreen",
-        "sim.mental_command": "🧠 MENTAL COMMAND: {action}",
+        "sim.mental_command": "🧠 {action}",
         "hud.no_signal": "NO CAMERA SIGNAL",
         "hud.esc": "ESC TO EXIT",
+
+        "cue.neutral": "Relax — let the drone hover",
+        "cue.push": "Push the drone forward",
+
+        # ── Trained action names ─────────────────────────────────────────────
+        "action.neutral": "Neutral",
+        "action.push": "Push",
+        "action.pull": "Pull",
+        "action.lift": "Lift",
+        "action.drop": "Drop",
+        "action.left": "Left",
+        "action.right": "Right",
+        "action.rotateLeft": "Rotate left",
+        "action.rotateRight": "Rotate right",
+        "action.disappear": "Disappear",
+
+        # ── Brain map ────────────────────────────────────────────────────────
+        "brainmap.title": "Training Result",
+        "brainmap.subtitle":
+            "Each dot is one trained action. The further apart they are, the more "
+            "reliably the headset can tell them apart.",
+        "brainmap.empty": "No brain map data yet.",
+        "brainmap.loading": "Reading the brain map from Cortex…",
+        "brainmap.axis_x": "Distinctness ←→",
+        "brainmap.axis_y": "Distance from neutral",
+        "brainmap.separation": "Closest pair: {gap}",
+        "brainmap.quality.good": "Well separated — good training",
+        "brainmap.quality.fair": "Usable, but two actions sit close together",
+        "brainmap.quality.poor": "Actions overlap — retraining is worth it",
+        "brainmap.quality.unknown": "Not enough trained actions to compare",
+        "brainmap.hint.good": "You are ready to fly. Continue to the test controls.",
+        "brainmap.hint.fair":
+            "It will work, but expect the occasional wrong command. "
+            "Retraining usually pulls the dots apart.",
+        "brainmap.hint.poor":
+            "Cortex is confusing these actions. Retrain and try to hold a more "
+            "distinct, consistent thought for each one.",
+        "brainmap.retrain": "🔄 Train Again",
+        "brainmap.continue": "Continue to Test Controls ➔",
+        "brainmap.refresh": "Refresh",
 
         # ── Settings dialog ──────────────────────────────────────────────────
         "settings.title": "⚙ Configurations",
@@ -248,6 +290,7 @@ I18N = {
         "log.retry_failed": "Retry failed: {detail}",
         "log.enter_profile_name": "Please enter a new profile name.",
         "log.recenter": "Manual recenter triggered.",
+        "log.brainmap_ready": "Brain map received — {quality}",
         "log.disconnecting": "Disconnecting...",
         "log.disconnected": "Disconnected and returned to setup.",
         "log.hud_opened": "Opened Fullscreen HUD.",
@@ -443,11 +486,47 @@ I18N = {
         "dash.log": "📟 日志",
 
         # ── Simulator / HUD overlays ─────────────────────────────────────────
-        "sim.score": "🏆 得分：{score}",
+        "sim.score": "🏆 {score}",
+        "sim.readout": "高度 {alt} 米   ·   速度 {spd}",
+        "sim.altitude": "高度 {alt} 米",
         "sim.esc_hint": "按 ESC 退出全屏",
-        "sim.mental_command": "🧠 意念指令：{action}",
+        "sim.mental_command": "🧠 {action}",
         "hud.no_signal": "无摄像信号",
         "hud.esc": "按 ESC 退出",
+
+        "cue.neutral": "放松 — 让无人机悬停",
+        "cue.push": "用意念把无人机向前推",
+
+        # ── Trained action names ─────────────────────────────────────────────
+        "action.neutral": "中性",
+        "action.push": "推",
+        "action.pull": "拉",
+        "action.lift": "上升",
+        "action.drop": "下降",
+        "action.left": "向左",
+        "action.right": "向右",
+        "action.rotateLeft": "向左旋转",
+        "action.rotateRight": "向右旋转",
+        "action.disappear": "消失",
+
+        # ── Brain map ────────────────────────────────────────────────────────
+        "brainmap.title": "训练结果",
+        "brainmap.subtitle": "每个圆点代表一个已训练的动作。点之间距离越远，设备就越能可靠地区分它们。",
+        "brainmap.empty": "暂无脑图数据。",
+        "brainmap.loading": "正在从 Cortex 读取脑图…",
+        "brainmap.axis_x": "区分度 ←→",
+        "brainmap.axis_y": "与中性状态的距离",
+        "brainmap.separation": "最接近的一对：{gap}",
+        "brainmap.quality.good": "区分良好 — 训练效果不错",
+        "brainmap.quality.fair": "可以使用，但有两个动作靠得较近",
+        "brainmap.quality.poor": "动作相互重叠 — 建议重新训练",
+        "brainmap.quality.unknown": "已训练的动作太少，无法比较",
+        "brainmap.hint.good": "可以开始飞行了，继续前往测试控制。",
+        "brainmap.hint.fair": "能用，但偶尔会识别错。重新训练通常能把这些点拉开。",
+        "brainmap.hint.poor": "Cortex 正在混淆这些动作。请重新训练，每个动作尽量保持更清晰、更稳定的意念。",
+        "brainmap.retrain": "🔄 重新训练",
+        "brainmap.continue": "继续前往测试控制 ➔",
+        "brainmap.refresh": "刷新",
 
         # ── Settings dialog ──────────────────────────────────────────────────
         "settings.title": "⚙ 设置",
@@ -495,6 +574,7 @@ I18N = {
         "log.retry_failed": "重试失败：{detail}",
         "log.enter_profile_name": "请输入新的配置文件名称。",
         "log.recenter": "已手动触发重新校准。",
+        "log.brainmap_ready": "已获取脑图 — {quality}",
         "log.disconnecting": "正在断开连接…",
         "log.disconnected": "已断开连接并返回设置页面。",
         "log.hud_opened": "已打开全屏 HUD。",
@@ -547,6 +627,11 @@ def set_lang(lang: str) -> str:
     global _LANG
     _LANG = lang if lang in I18N else "en"
     return _LANG
+
+
+def has(key: str) -> bool:
+    """True when `key` exists in any table — lets callers fall back to raw text."""
+    return key in I18N["en"] or key in I18N.get(_LANG, {})
 
 
 def t(key: str, **params) -> str:
