@@ -13,6 +13,7 @@ Control a DJI Tello drone using only your mind and head movements. This project 
 - **Mental Command Integration**: Map trained thoughts (Push, Pull, Lift, etc.) to critical flight actions like **Take Off**, **Land**, or **Emergency Stop**.
 - **Real-time Telemetry & Video**: The dashboard provides a live H.264 video feed from the drone and displays real-time battery status, altitude, temperature, and RC command logs.
 - **Premium Dark Dashboard**: A custom-built PyQt6 interface designed for professional BCI experimentation.
+- **English and 中文**: Switch language from the header at any time — the whole interface follows immediately, no restart. Your choice is remembered in `config.json`.
 - **Simulation Mode**: Test your BCI mapping and head tracking precision in a safe software-only environment before taking flight.
 
 ## 📡 How the Drone Connection Works
@@ -102,6 +103,14 @@ The easiest way to start is via the included shell script:
 ./run.sh
 ```
 
+### Language
+Pick **English** or **中文** from the dropdown in the top-right corner. The change
+applies live, and the app reopens in the same language next time.
+
+Two things stay in English on purpose: the raw Cortex/MOT/COM stream dumps in
+the log pane, and telemetry channel abbreviations (`PWR`, `ALT`, `THR`, `YAW`)
+on the HUD — they are protocol identifiers, not prose.
+
 ### Head Tracking Controls
 | Movement | Drone Action |
 | :--- | :--- |
@@ -121,16 +130,57 @@ The easiest way to start is via the included shell script:
 ## 📁 Repository Structure
 
 ```text
+├── .github/workflows/  # macOS + Windows build pipeline
 ├── bci_core/           # Signal processing and BCI logic
 ├── certificates/       # SSL certificates for Emotiv connection
+├── packaging/          # PyInstaller spec
+├── app_paths.py        # Resource and user-data paths (source vs. bundle)
 ├── config_manager.py   # Secure configuration handler
 ├── cortex.py           # Emotiv Cortex API wrapper
 ├── drone_adapter.py    # BCI to Tello command translator
 ├── drone_controller.py # Core background engine
+├── i18n.py             # English / 中文 translation table
 ├── ui.py               # Graphical Dashboard
 ├── run.sh              # Entry point script
 └── requirements.txt    # Project dependencies
 ```
+
+---
+
+## 📦 Desktop Builds
+
+Prebuilt, **unsigned** bundles for macOS (Apple Silicon) and Windows (x64) are
+produced by GitHub Actions — no Python install needed to run them.
+
+**Getting one:** open the **Actions** tab → *Build desktop app* → pick a run →
+download `EMOTIV-Drone-BCI-macos-arm64` or `EMOTIV-Drone-BCI-windows-x64`.
+Pushing a `v*` tag also attaches both to a GitHub release.
+
+**Opening them past the OS warning** (they carry no developer signature):
+
+- **macOS** — mount the `.dmg`, drag the app to Applications, then right-click →
+  **Open** → **Open**. Double-clicking gives a dead-end "cannot be opened" dialog.
+  If Gatekeeper still refuses:
+  ```bash
+  xattr -dr com.apple.quarantine "/Applications/EMOTIV Drone BCI.app"
+  ```
+- **Windows** — unzip anywhere, run `EMOTIV Drone BCI.exe`. On the SmartScreen
+  prompt choose **More info** → **Run anyway**.
+
+EMOTIV Launcher must be running before you start the app, and it will ask you to
+approve access on first launch. Settings are stored per user, not next to the
+app: `~/Library/Application Support/EmotivDrone` on macOS,
+`%APPDATA%\EmotivDrone` on Windows.
+
+### Building locally
+
+```bash
+pip install -r requirements.txt pyinstaller
+pyinstaller packaging/EmotivDrone.spec --noconfirm
+```
+
+Output lands in `dist/`. A build only ever targets the OS it runs on — the
+Windows bundle has to come from a Windows machine (or the CI runner).
 
 ---
 
