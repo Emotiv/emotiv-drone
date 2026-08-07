@@ -33,7 +33,10 @@ DEFAULT_CONFIG = {
         {"command": "pull", "action": "Land", "threshold": 0.6, "auto_release": 0},
         {"command": "drop", "action": "EmergencyStop", "threshold": 0.5, "auto_release": 0},
         {"command": "lift", "action": "FlipForward", "threshold": 0.7, "auto_release": 0}
-    ]
+    ],
+
+    # Device Specific Overrides (e.g., {"MN8": {"invert_yaw": true, ...}})
+    "device_profiles": {}
 }
 
 class ConfigManager:
@@ -76,3 +79,53 @@ class ConfigManager:
                 json.dump(credentials_dict, f, indent=4)
         except Exception as e:
             print(f"Error saving config: {e}")
+
+    @staticmethod
+    def get_device_config(config: dict, device_type: str) -> dict:
+        """Returns a copy of the config tailored for the specified device type."""
+        device_profiles = config.get("device_profiles", {})
+        device_config = config.copy()
+        
+        # If we have a profile for this device, apply it over the base config
+        if device_type in device_profiles:
+            device_config.update(device_profiles[device_type])
+        else:
+            # Create a default profile for this new device type
+            profile = {}
+            if device_type == "MN8":
+                # MN8-specific default overrides
+                profile["invert_yaw"] = True
+                profile["sens_left"] = 30.0
+                profile["sens_right"] = 30.0
+                profile["sens_fwd"] = 25.0
+                profile["sens_back"] = 25.0
+            
+            config.setdefault("device_profiles", {})[device_type] = profile
+            device_config.update(profile)
+            ConfigManager.save_config(config)
+            
+        return device_config
+
+    @staticmethod
+    def update_device_profile(config: dict, device_type: str, new_settings: dict) -> None:
+        """Update the device profile with new settings and save to disk."""
+        if not device_type:
+            return
+            
+        profiles = config.setdefault("device_profiles", {})
+        profile = profiles.setdefault(device_type, {})
+        
+        # We only want to save keys that are device-specific overrides
+        # For simplicity, we just save motion/control keys
+        overridable_keys = [
+            "invert_yaw", "sens_left", "sens_right", "sens_fwd", "sens_back",
+            "sensitivity", "deadzone", "smoothing_window", 
+            "max_speed", "yaw_sensitivity", "throttle_sensitivity",
+            "mental_mappings"
+        ]
+        
+        for k in overridable_keys:
+            if k in new_settings:
+                profile[k] = new_settings[k]
+                
+        ConfigManager.save_config(config)

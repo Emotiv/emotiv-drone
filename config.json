@@ -1,12 +1,12 @@
 {
-    "device_id": "",
-    "profile_name": "giovani",
+    "device_id": "MN8-A001",
+    "profile_name": "mn8",
     "simulate": false,
     "fix_indices": false,
     "sensitivity": 0.5,
     "deadzone": 0.02,
     "smoothing_window": 4,
-    "max_speed": 100,
+    "max_speed": 69,
     "altitude_hold": true,
     "yaw_sensitivity": 0.5,
     "throttle_sensitivity": 0.5,
@@ -36,8 +36,50 @@
             "auto_release": 0
         }
     ],
-    "sens_left": 300.0,
-    "sens_right": 300.0,
-    "sens_fwd": 50.0,
-    "sens_back": 50.0
+    "device_profiles": {
+        "MN8": {
+            "invert_yaw": true,
+            "sens_left": 20.0,
+            "sens_right": 20.0,
+            "sens_fwd": 25.0,
+            "sens_back": 25.0,
+            "sensitivity": 0.5,
+            "deadzone": 0.02,
+            "smoothing_window": 4,
+            "max_speed": 69,
+            "yaw_sensitivity": 0.5,
+            "throttle_sensitivity": 0.5,
+            "mental_mappings": [
+                {
+                    "command": "push",
+                    "action": "MoveForward",
+                    "threshold": 0.5,
+                    "auto_release": 0
+                },
+                {
+                    "command": "pull",
+                    "action": "None",
+                    "threshold": 0.5,
+                    "auto_release": 0
+                },
+                {
+                    "command": "drop",
+                    "action": "None",
+                    "threshold": 0.5,
+                    "auto_release": 0
+                },
+                {
+                    "command": "lift",
+                    "action": "None",
+                    "threshold": 0.5,
+                    "auto_release": 0
+                }
+            ]
+        }
+    },
+    "sens_left": 20.0,
+    "sens_right": 20.0,
+    "sens_fwd": 25.0,
+    "sens_back": 25.0,
+    "invert_yaw": true
 }

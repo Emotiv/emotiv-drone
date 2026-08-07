@@ -657,7 +657,11 @@ class TelloControllerApp(QMainWindow):
     bci_status_signal = pyqtSignal(str)
     bci_telemetry_signal = pyqtSignal(int, int)
     profiles_signal = pyqtSignal(list)
-
+    headsets_signal = pyqtSignal(list)
+    training_signal = pyqtSignal(str)
+    dev_data_signal = pyqtSignal(int, list)
+    mc_config_signal = pyqtSignal(dict)
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Tello BCI Controller")
@@ -668,11 +672,16 @@ class TelloControllerApp(QMainWindow):
         self.video_thread = None
         self.client_thread = None
 
+        # --- Signals ---
         self.log_signal.connect(self._append_log)
         self.drone_connected_signal.connect(self._on_drone_connection_result)
         self.bci_status_signal.connect(self._do_update_bci_status)
         self.bci_telemetry_signal.connect(self._do_update_bci_telemetry)
         self.profiles_signal.connect(self._populate_profiles)
+        self.headsets_signal.connect(self._populate_headsets)
+        self.training_signal.connect(self._on_training_update)
+        self.dev_data_signal.connect(self._on_dev_data_update)
+        self.mc_config_signal.connect(self._on_mc_config_update)
 
         self.stdout_stream = EmittingStream()
         self.stdout_stream.textWritten.connect(self.log_signal.emit)
@@ -698,7 +707,12 @@ class TelloControllerApp(QMainWindow):
         self.stacked_widget = QStackedWidget()
         main_layout.addWidget(self.stacked_widget)
 
-        self.setup_page_0()
+        self.setup_page_auth()
+        self.setup_page_headset()
+        self.setup_page_profile()
+        self.setup_page_eq_check()
+        self.setup_page_train_neutral()
+        self.setup_page_train_push()
         self.setup_page_1()
         self.setup_page_2()
         self.setup_page_3()
@@ -706,38 +720,114 @@ class TelloControllerApp(QMainWindow):
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
 
-    def setup_page_0(self):
+    def setup_page_auth(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        container = QWidget(); container.setFixedWidth(500)
+        container = QWidget(); container.setFixedWidth(600)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
-        title = QLabel("Step 1: Connect to BCI Headset"); title.setObjectName("titleLabel")
+        title = QLabel("Step 1: Authenticate with Cortex"); title.setObjectName("titleLabel")
         c_layout.addWidget(title)
 
-        c_layout.addWidget(QLabel("Client ID:")); self.client_id_input = QLineEdit()
-        c_layout.addWidget(self.client_id_input)
-        c_layout.addWidget(QLabel("Client Secret:")); self.client_secret_input = QLineEdit()
+        auth_group = QGroupBox("Credentials")
+        auth_layout = QVBoxLayout(auth_group)
+        auth_layout.addWidget(QLabel("Client ID:"))
+        self.client_id_input = QLineEdit()
+        auth_layout.addWidget(self.client_id_input)
+        auth_layout.addWidget(QLabel("Client Secret:"))
+        self.client_secret_input = QLineEdit()
         self.client_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
-        c_layout.addWidget(self.client_secret_input)
+        auth_layout.addWidget(self.client_secret_input)
+        
+        self.simulate_cb = QCheckBox("Simulation Mode (Test UI without headset)")
+        auth_layout.addWidget(self.simulate_cb)
+        
+        self.connect_bci_btn = QPushButton("Authenticate"); self.connect_bci_btn.setObjectName("blueBtn")
+        self.connect_bci_btn.clicked.connect(self._start_bci)
+        auth_layout.addWidget(self.connect_bci_btn)
+        c_layout.addWidget(auth_group)
 
-        # ── Profile selection (user picks from dropdown after authorization) ──
+        c_layout.addWidget(QLabel("BCI Connection Logs:"))
+        self.bci_log_terminal = QPlainTextEdit()
+        self.bci_log_terminal.setReadOnly(True)
+        self.bci_log_terminal.setMaximumBlockCount(200)
+        self.bci_log_terminal.setFixedHeight(120)
+        c_layout.addWidget(self.bci_log_terminal)
+
+        layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    def setup_page_headset(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QWidget(); container.setFixedWidth(600)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
+
+        title = QLabel("Step 2: Select Headset"); title.setObjectName("titleLabel")
+        c_layout.addWidget(title)
+
+        self.headset_group = QGroupBox("Available Headsets")
+        headset_layout = QVBoxLayout(self.headset_group)
+        self.headset_combo = QComboBox()
+        self.headset_combo.addItem("— awaiting authentication —")
+        self.headset_combo.setStyleSheet(
+            "QComboBox { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
+            "padding: 8px 12px; color: #8b949e; font-size: 14px; }"
+            "QComboBox:enabled { color: #e6edf3; }"
+            "QComboBox QAbstractItemView { background-color: #161b22; color: #e6edf3;"
+            "selection-background-color: #1f6feb; border: 1px solid #30363d; }"
+        )
+        headset_layout.addWidget(self.headset_combo)
+        
+        self.connect_headset_btn = QPushButton("Connect Headset")
+        self.connect_headset_btn.setObjectName("blueBtn")
+        self.connect_headset_btn.clicked.connect(self._connect_headset)
+        headset_layout.addWidget(self.connect_headset_btn)
+        
+        self.bci_conn_status_lbl = QLabel("🔴 Not Connected")
+        self.bci_conn_status_lbl.setObjectName("statusBadge")
+        self.bci_conn_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        headset_layout.addWidget(self.bci_conn_status_lbl)
+        c_layout.addWidget(self.headset_group)
+
+        # Back button
+        back_btn = QPushButton("⬅ Back to Auth")
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
+        c_layout.addWidget(back_btn)
+
+        layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    def setup_page_profile(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QWidget(); container.setFixedWidth(600)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
+
+        title = QLabel("Step 3: Training Profile"); title.setObjectName("titleLabel")
+        c_layout.addWidget(title)
+
+        self.profile_group = QGroupBox("Available Profiles")
+        profile_layout = QVBoxLayout(self.profile_group)
+        
         profile_hdr = QHBoxLayout()
-        profile_hdr.addWidget(QLabel("Training Profile:"))
+        profile_hdr.addWidget(QLabel("Profile:"))
         profile_hdr.addStretch()
         self.refresh_profiles_btn = QPushButton("🔄 Refresh")
         self.refresh_profiles_btn.setFixedWidth(90)
-        self.refresh_profiles_btn.setEnabled(False)
         self.refresh_profiles_btn.setToolTip("Re-fetch profile list from Cortex")
         self.refresh_profiles_btn.clicked.connect(self._refresh_profiles)
         profile_hdr.addWidget(self.refresh_profiles_btn)
-        c_layout.addLayout(profile_hdr)
+        profile_layout.addLayout(profile_hdr)
 
         self.profile_combo = QComboBox()
-        self.profile_combo.addItem("— connect to load profiles —")
-        self.profile_combo.setEnabled(False)
+        self.profile_combo.addItem("— connect headset first —")
         self.profile_combo.setStyleSheet(
             "QComboBox { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
             "padding: 8px 12px; color: #8b949e; font-size: 14px; }"
@@ -745,47 +835,273 @@ class TelloControllerApp(QMainWindow):
             "QComboBox QAbstractItemView { background-color: #161b22; color: #e6edf3;"
             "selection-background-color: #1f6feb; border: 1px solid #30363d; }"
         )
-        c_layout.addWidget(self.profile_combo)
+        profile_layout.addWidget(self.profile_combo)
 
         self.load_profile_btn = QPushButton("🧠 Load Selected Profile")
         self.load_profile_btn.setObjectName("primaryBtn")
-        self.load_profile_btn.setEnabled(False)
         self.load_profile_btn.clicked.connect(self._load_selected_profile)
-        c_layout.addWidget(self.load_profile_btn)
+        profile_layout.addWidget(self.load_profile_btn)
 
         self.profile_status_lbl = QLabel("Select a training profile after connecting.")
         self.profile_status_lbl.setStyleSheet(
-            "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;"
+            "color: #8b949e; font-size: 13px; font-style: italic; margin-top: 8px;"
         )
-        c_layout.addWidget(self.profile_status_lbl)
+        profile_layout.addWidget(self.profile_status_lbl)
+        
+        # New: Create & Train Profile Section
+        train_layout = QHBoxLayout()
+        self.new_profile_input = QLineEdit()
+        self.new_profile_input.setPlaceholderText("New Profile Name...")
+        
+        self.train_profile_btn = QPushButton("🧠 Create & Train")
+        self.train_profile_btn.setObjectName("primaryBtn")
+        self.train_profile_btn.clicked.connect(self._create_and_train_profile)
+        
+        train_layout.addWidget(self.new_profile_input)
+        train_layout.addWidget(self.train_profile_btn)
+        profile_layout.addLayout(train_layout)
 
-        self.simulate_cb = QCheckBox("Simulation Mode (Test UI without headset)")
-        c_layout.addWidget(self.simulate_cb)
-        c_layout.addSpacing(10)
+        self.profile_group.setEnabled(False)
+        c_layout.addWidget(self.profile_group)
 
-        self.bci_conn_status_lbl = QLabel("🔴 Not Connected")
-        self.bci_conn_status_lbl.setObjectName("statusBadge")
-        self.bci_conn_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        c_layout.addWidget(self.bci_conn_status_lbl)
-
+        # ── Next Button & Back Button ──
         btn_row = QHBoxLayout()
-        self.connect_bci_btn = QPushButton("Connect BCI"); self.connect_bci_btn.setObjectName("blueBtn")
-        self.connect_bci_btn.clicked.connect(self._start_bci)
-        self.p0_next_btn = QPushButton("Next: Test Controls ➔"); self.p0_next_btn.setObjectName("primaryBtn")
+        back_btn = QPushButton("⬅ Back to Headsets")
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
+        
+        self.p0_next_btn = QPushButton("Next: Test Controls ➔")
+        self.p0_next_btn.setObjectName("primaryBtn")
         self.p0_next_btn.setEnabled(False)
-        self.p0_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
-        btn_row.addWidget(self.connect_bci_btn); btn_row.addWidget(self.p0_next_btn)
+        self.p0_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
+        
+        btn_row.addWidget(back_btn)
+        btn_row.addWidget(self.p0_next_btn)
         c_layout.addLayout(btn_row)
 
-        c_layout.addSpacing(10)
-        c_layout.addWidget(QLabel("BCI Connection Logs:"))
-        self.bci_log_terminal = QPlainTextEdit()
-        self.bci_log_terminal.setReadOnly(True)
-        self.bci_log_terminal.setMaximumBlockCount(200)
-        self.bci_log_terminal.setFixedHeight(150)
-        c_layout.addWidget(self.bci_log_terminal)
+        layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    def _get_artifact_image_path(self, filename: str) -> str:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".gemini", "antigravity-ide", "brain", "d3a45a7c-55b3-4531-b454-34ccaf34c9bd", filename)
+        if not os.path.exists(path):
+            path = f"/Users/giovaniflorek/.gemini/antigravity-ide/brain/d3a45a7c-55b3-4531-b454-34ccaf34c9bd/{filename}"
+        return path
+
+    def setup_page_eq_check(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QWidget(); container.setFixedWidth(700)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
+
+        title = QLabel("EEG Signal Quality Check")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        c_layout.addWidget(title)
+
+        subtitle = QLabel("Ensure all sensors show good contact quality before training.")
+        subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        c_layout.addWidget(subtitle)
+
+        self.eq_overall_lbl = QLabel("Overall Signal: Waiting...")
+        self.eq_overall_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.eq_overall_lbl.setStyleSheet(
+            "font-size: 16px; font-weight: bold; color: #e6edf3;"
+            "padding: 10px; background-color: #161b22; border: 1px solid #30363d; border-radius: 8px;"
+        )
+        c_layout.addWidget(self.eq_overall_lbl)
+
+        sensor_group = QGroupBox("Sensor Contact Quality")
+        self.eq_sensor_layout = QGridLayout(sensor_group)
+        self.eq_sensor_layout.setSpacing(8)
+        self.eq_sensor_labels = {}
+        c_layout.addWidget(sensor_group)
+
+        self.eq_status_lbl = QLabel("Waiting for sensor data...")
+        self.eq_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #e3a01a; margin-top: 10px;")
+        c_layout.addWidget(self.eq_status_lbl)
+
+        btn_row = QHBoxLayout()
+        back_btn = QPushButton("⬅ Back to Profiles")
+        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
+
+        self.eq_next_btn = QPushButton("Start Training ➔")
+        self.eq_next_btn.setObjectName("primaryBtn")
+        self.eq_next_btn.setEnabled(False)
+        self.eq_next_btn.clicked.connect(self._start_training_from_eq)
+
+        btn_row.addWidget(back_btn)
+        btn_row.addWidget(self.eq_next_btn)
+        c_layout.addLayout(btn_row)
 
         layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    def _start_training_from_eq(self):
+        self._begin_training_sequence("neutral")
+
+    def _begin_training_sequence(self, action):
+        self.current_training_action = action
+        if action == "neutral":
+            self.stacked_widget.setCurrentIndex(4)
+        else:
+            self.stacked_widget.setCurrentIndex(5)
+            
+        if not hasattr(self, "countdown_overlay"):
+            self.countdown_overlay = QLabel(self.stacked_widget)
+            self.countdown_overlay.setStyleSheet("font-size: 120px; font-weight: bold; color: rgba(255, 123, 114, 255); background-color: rgba(0, 0, 0, 150); border-radius: 20px;")
+            self.countdown_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+        self.countdown_overlay.resize(200, 200)
+        sw_rect = self.stacked_widget.rect()
+        self.countdown_overlay.move(
+            int((sw_rect.width() - 200) / 2),
+            int((sw_rect.height() - 200) / 2)
+        )
+        
+        self.countdown_val = 3
+        self.countdown_overlay.setText(str(self.countdown_val))
+        self.countdown_overlay.show()
+        self.countdown_overlay.raise_()
+        
+        lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
+        lbl.setText("Get ready...")
+        
+        if hasattr(self, "countdown_timer") and self.countdown_timer.isActive():
+            self.countdown_timer.stop()
+            
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(lambda: self._on_countdown_tick(action))
+        self.countdown_timer.start(1000)
+
+    def _on_countdown_tick(self, action):
+        self.countdown_val -= 1
+        if self.countdown_val > 0:
+            self.countdown_overlay.setText(str(self.countdown_val))
+        else:
+            self.countdown_timer.stop()
+            self.countdown_overlay.hide()
+            
+            lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
+            self.recording_val = 8
+            lbl.setText(f"Recording... {self.recording_val}s remaining")
+            
+            if hasattr(self, "recording_timer") and self.recording_timer.isActive():
+                self.recording_timer.stop()
+                
+            self.recording_timer = QTimer(self)
+            self.recording_timer.timeout.connect(lambda: self._on_recording_tick(action))
+            self.recording_timer.start(1000)
+            
+            if action == "push":
+                self.push_anim_timer.start(50)
+                
+            self.drone_client.start_training(action)
+
+    def _on_recording_tick(self, action):
+        self.recording_val -= 1
+        lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
+        if self.recording_val > 0:
+            lbl.setText(f"Recording... {self.recording_val}s remaining")
+        else:
+            self.recording_timer.stop()
+            lbl.setText("Finishing up...")
+
+    def setup_page_train_neutral(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        
+        title = QLabel("Training: Neutral Baseline")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        subtitle = QLabel("Relax and keep your mind clear. The drone should stay still.")
+        subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(subtitle)
+        
+        self.neutral_sim = DroneSimulatorWidget(self)
+        self.neutral_sim.setMinimumSize(500, 350)
+        layout.addWidget(self.neutral_sim, stretch=1)
+        
+        self.neutral_status_lbl = QLabel("Waiting for training to start...")
+        self.neutral_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.neutral_status_lbl.setStyleSheet("font-size: 16px; color: #e6edf3;")
+        layout.addWidget(self.neutral_status_lbl)
+        
+        btn_layout = QHBoxLayout()
+        self.neutral_accept_btn = QPushButton("Accept")
+        self.neutral_accept_btn.setObjectName("primaryBtn")
+        self.neutral_accept_btn.clicked.connect(lambda: self._on_training_accept("neutral"))
+        self.neutral_accept_btn.hide()
+        
+        self.neutral_reject_btn = QPushButton("Reject (Retry)")
+        self.neutral_reject_btn.setObjectName("dangerBtn")
+        self.neutral_reject_btn.clicked.connect(lambda: self._on_training_reject("neutral"))
+        self.neutral_reject_btn.hide()
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.neutral_accept_btn)
+        btn_layout.addWidget(self.neutral_reject_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+        
+        self.stacked_widget.addWidget(page)
+
+    def setup_page_train_push(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        
+        title = QLabel("Training: Push Command (Forward)")
+        title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        subtitle = QLabel("Focus on the drone. Imagine pushing it forward with your mind.")
+        subtitle.setStyleSheet("font-size: 14px; color: #8b949e;")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(subtitle)
+        
+        self.push_sim = DroneSimulatorWidget(self)
+        self.push_sim.setMinimumSize(500, 350)
+        layout.addWidget(self.push_sim, stretch=1)
+        
+        # Timer to animate the push sim forward
+        self.push_anim_timer = QTimer()
+        self.push_anim_timer.timeout.connect(lambda: self.push_sim.update_rc(0, 10, 0, 0))
+        
+        self.push_status_lbl = QLabel("Waiting for training to start...")
+        self.push_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.push_status_lbl.setStyleSheet("font-size: 16px; color: #e6edf3;")
+        layout.addWidget(self.push_status_lbl)
+        
+        btn_layout = QHBoxLayout()
+        self.push_accept_btn = QPushButton("Accept")
+        self.push_accept_btn.setObjectName("primaryBtn")
+        self.push_accept_btn.clicked.connect(lambda: self._on_training_accept("push"))
+        self.push_accept_btn.hide()
+        
+        self.push_reject_btn = QPushButton("Reject (Retry)")
+        self.push_reject_btn.setObjectName("dangerBtn")
+        self.push_reject_btn.clicked.connect(lambda: self._on_training_reject("push"))
+        self.push_reject_btn.hide()
+        
+        self.push_next_btn = QPushButton("Finish & Go to Test Controls")
+        self.push_next_btn.setObjectName("primaryBtn")
+        self.push_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
+        self.push_next_btn.hide()
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.push_accept_btn)
+        btn_layout.addWidget(self.push_reject_btn)
+        btn_layout.addWidget(self.push_next_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+        
         self.stacked_widget.addWidget(page)
 
     def setup_page_1(self):
@@ -850,7 +1166,7 @@ class TelloControllerApp(QMainWindow):
         c_layout.addWidget(raw_group)
 
         btn_row = QHBoxLayout()
-        back_btn = QPushButton("⬅ Back"); back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
+        back_btn = QPushButton("⬅ Back"); back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
         
         fs_btn = QPushButton("📺 Fullscreen")
         fs_btn.clicked.connect(self.toggle_fullscreen)
@@ -858,7 +1174,7 @@ class TelloControllerApp(QMainWindow):
         self.recenter_btn_p1 = QPushButton("🎯 Recenter Headset"); self.recenter_btn_p1.setObjectName("blueBtn")
         self.recenter_btn_p1.clicked.connect(self.reset_headset)
         next_btn = QPushButton("Next: Real Drone Setup ➔"); next_btn.setObjectName("primaryBtn")
-        next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(2))
+        next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(7))
         btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn); btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(next_btn)
         c_layout.addLayout(btn_row)
 
@@ -891,7 +1207,7 @@ class TelloControllerApp(QMainWindow):
         self.p2_next_btn.clicked.connect(self.go_to_dashboard)
         c_layout.addWidget(self.p2_next_btn)
 
-        back_btn = QPushButton("⬅ Back to Test"); back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
+        back_btn = QPushButton("⬅ Back to Test"); back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(6))
         c_layout.addWidget(back_btn)
 
         layout.addWidget(container)
@@ -1014,13 +1330,17 @@ class TelloControllerApp(QMainWindow):
             debug=False, config=self.config,
             bci_status_callback=self.update_bci_status,
             bci_telemetry_callback=self.update_bci_telemetry,
-            profiles_callback=self.update_profiles
+            profiles_callback=self.update_profiles,
+            headsets_callback=self.update_headsets,
+            training_callback=self.training_signal.emit,
+            dev_data_callback=self.dev_data_signal.emit,
+            mc_config_callback=self.mc_config_signal.emit
         )
 
         self.client_thread = threading.Thread(
             target=lambda: self.drone_client.simulate() if is_sim else self.drone_client.start(
-                headset_id=self.config.get("device_id", ""),
-                profile_name=''  # profile is auto-selected in on_query_profile_done
+                headset_id="", # User will pick after auth
+                profile_name="" # profile is auto-selected in on_query_profile_done
             ), daemon=True
         )
         self.client_thread.start()
@@ -1032,6 +1352,73 @@ class TelloControllerApp(QMainWindow):
     def update_profiles(self, profiles: list):
         """Thread-safe: forward profile list to the Qt main thread."""
         self.profiles_signal.emit(profiles)
+
+    def update_headsets(self, headsets: list):
+        """Thread-safe: forward headset list to the Qt main thread."""
+        self.headsets_signal.emit(headsets)
+        
+    def update_training(self, event: str):
+        self.training_signal.emit(event)
+
+    def update_dev_data(self, signal: int, cq_list: list):
+        self.dev_data_signal.emit(signal, cq_list)
+
+    # ──────────────────────────────────────────────
+    # Signal Handlers (Main Thread)
+    # ──────────────────────────────────────────────
+    def _populate_headsets(self, headsets: list):
+        """Populate the headset dropdown."""
+        self.headset_combo.clear()
+        
+        if not headsets:
+            self.headset_combo.addItem("⚠️ No headsets found")
+            self.headset_combo.setEnabled(False)
+            self.connect_headset_btn.setEnabled(False)
+            self.log("No headsets found. Make sure Emotiv App is running and headset is turned on.")
+            return
+
+        for hs in headsets:
+            hs_id = hs.get('id', 'Unknown')
+            status = hs.get('status', 'Unknown')
+            self.headset_combo.addItem(f"🎧 {hs_id} ({status})", userData=hs_id)
+
+        self.headset_combo.setEnabled(True)
+        self.connect_headset_btn.setEnabled(True)
+        self.headset_group.setEnabled(True)
+        self.log(f"{len(headsets)} headset(s) available. Please select one to connect.")
+        # Auto-advance to headset selection screen on successful authentication & headset query
+        self.stacked_widget.setCurrentIndex(1)
+
+    def _connect_headset(self):
+        """Connect to the selected headset."""
+        idx = self.headset_combo.currentIndex()
+        headset_id = self.headset_combo.itemData(idx)
+        if not headset_id:
+            self.log("No valid headset selected.")
+            return
+
+        self.connect_headset_btn.setEnabled(False)
+        self.connect_headset_btn.setText("⏳ Connecting...")
+        
+        # Load and apply device-specific config profile
+        device_type = headset_id.split('-')[0]
+        self.config = ConfigManager.get_device_config(self.config, device_type)
+        self.config["device_id"] = headset_id
+        
+        self._apply_config_to_client()
+        
+        self.log(f"Connecting to headset '{headset_id}'...")
+
+        if self.drone_client:
+            threading.Thread(
+                target=self.drone_client.connect_headset,
+                args=(headset_id,),
+                daemon=True
+            ).start()
+        else:
+            self.log("Error: Drone client not initialized.")
+            self.connect_headset_btn.setEnabled(True)
+            self.connect_headset_btn.setText("Connect Headset")
 
     def _populate_profiles(self, profiles: list):
         """Populate the profile dropdown so the user can pick which one to load."""
@@ -1123,7 +1510,7 @@ class TelloControllerApp(QMainWindow):
             # Re-enable the Load button so the user can switch profiles
             self.load_profile_btn.setEnabled(True)
             self.load_profile_btn.setText("🧠 Load Selected Profile")
-            self.profile_status_lbl.setText(f"✅ {msg}")
+            self.profile_status_lbl.setText(f"Profile '{self.profile_combo.currentText()}' selected. Ready.")
             self.profile_status_lbl.setStyleSheet(
                 "color: #3fb950; font-size: 11px; font-style: italic; padding: 0 2px;"
             )
@@ -1136,6 +1523,12 @@ class TelloControllerApp(QMainWindow):
             self._hide_access_pending_ui()
             self._override_action_for_test()
             # Session is active — user can now select and load a profile.
+            self.profile_group.setEnabled(True)
+            self.profile_combo.setEnabled(True)
+            self.profile_status_lbl.setText("Session active. Select a profile and click Load.")
+            # Auto-advance to profile selection screen only if still on auth/headset screens
+            if self.stacked_widget.currentIndex() <= 1:
+                self.stacked_widget.setCurrentIndex(2)
             # Enable Next for simulation; otherwise wait for profile load.
             is_sim = self.simulate_cb.isChecked()
             if is_sim:
@@ -1230,14 +1623,162 @@ class TelloControllerApp(QMainWindow):
             except Exception as e:
                 self.log(f"Retry failed: {e}")
 
+    def _create_and_train_profile(self):
+        new_name = self.new_profile_input.text().strip()
+        if not new_name:
+            self.log("Please enter a new profile name.")
+            return
+            
+        self.current_training_action = "neutral"
+        self.stacked_widget.setCurrentIndex(3)
+        self.drone_client.create_and_train_profile(new_name)
+        
+    def _on_training_accept(self, action: str):
+        if action == "neutral":
+            self.neutral_accept_btn.hide()
+            self.neutral_reject_btn.hide()
+            self.neutral_status_lbl.setText("Accepting training...")
+        else:
+            self.push_accept_btn.hide()
+            self.push_reject_btn.hide()
+            self.push_status_lbl.setText("Accepting training...")
+        self.drone_client.accept_training(action)
+        
+    def _on_training_reject(self, action: str):
+        if action == "neutral":
+            self.neutral_accept_btn.hide()
+            self.neutral_reject_btn.hide()
+            self.neutral_status_lbl.setText("Retrying training...")
+        else:
+            self.push_accept_btn.hide()
+            self.push_reject_btn.hide()
+            self.push_status_lbl.setText("Retrying training...")
+        self.drone_client.reject_training(action)
+        
+    def _on_training_update(self, event: str):
+        idx = self.stacked_widget.currentIndex()
+        if idx not in [4, 5]:
+            return
+            
+        action = getattr(self, "current_training_action", "neutral")
+        
+        lbl = self.neutral_status_lbl if action == "neutral" else self.push_status_lbl
+        btn_acc = self.neutral_accept_btn if action == "neutral" else self.push_accept_btn
+        btn_rej = self.neutral_reject_btn if action == "neutral" else self.push_reject_btn
+        
+        if event.startswith("PROFILE_LOADED:"):
+            self.stacked_widget.setCurrentIndex(3)
+            return
+
+        event_lower = event.lower()
+        if "started" in event_lower:
+            pass # Handled by local recording timer
+        elif "succeeded" in event_lower:
+            if hasattr(self, "recording_timer") and self.recording_timer.isActive():
+                self.recording_timer.stop()
+            lbl.setText("Training Succeeded! Good data quality.")
+            btn_acc.show()
+            btn_rej.show()
+            btn_rej.setText("Reject (Retry)")
+        elif "failed" in event_lower:
+            if hasattr(self, "recording_timer") and self.recording_timer.isActive():
+                self.recording_timer.stop()
+            lbl.setText("Training Failed! Poor data quality.")
+            btn_acc.hide()
+            btn_rej.show()
+            btn_rej.setText("Retry")
+        elif "completed" in event_lower:
+            if hasattr(self, "recording_timer") and self.recording_timer.isActive():
+                self.recording_timer.stop()
+            if action == "neutral":
+                self._begin_training_sequence("push")
+            else:
+                self.push_anim_timer.stop()
+                lbl.setText("All training complete! Saving profile...")
+                self.drone_client.save_profile()
+                self.push_next_btn.show()
+
+    def _on_dev_data_update(self, signal: int, cq_list: list):
+        """Update the EQ quality check screen with per-sensor contact quality."""
+        # Only update when on the EQ check screen (index 3)
+        if self.stacked_widget.currentIndex() != 3:
+            return
+
+        # Overall signal quality (0-4)
+        signal_labels = {0: "No Signal", 1: "Very Bad", 2: "Poor", 3: "Fair", 4: "Good"}
+        signal_colors = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
+        sig_text = signal_labels.get(signal, f"Unknown ({signal})")
+        sig_color = signal_colors.get(signal, "#8b949e")
+        self.eq_overall_lbl.setText(f"Overall Signal: {sig_text} ({signal}/4)")
+        self.eq_overall_lbl.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {sig_color};"
+            f"padding: 10px; background-color: #161b22; border: 1px solid {sig_color}; border-radius: 8px;"
+        )
+
+        # Per-sensor contact quality
+        # CQ values: 0=No Signal, 1=Bad, 2=Poor, 3=Fair, 4=Good
+        cq_colors = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
+        cq_labels_map = {0: "No Signal", 1: "Bad", 2: "Poor", 3: "Fair", 4: "Good"}
+
+        for i, cq_val in enumerate(cq_list):
+            sensor_name = f"S{i}"
+            cq_val_int = int(cq_val) if isinstance(cq_val, (int, float)) else 0
+            color = cq_colors.get(cq_val_int, "#8b949e")
+            cq_text = cq_labels_map.get(cq_val_int, "?")
+
+            if sensor_name not in self.eq_sensor_labels:
+                name_lbl = QLabel(sensor_name)
+                name_lbl.setStyleSheet("font-weight: bold; font-size: 13px; color: #e6edf3;")
+                name_lbl.setFixedWidth(40)
+
+                bar = QProgressBar()
+                bar.setRange(0, 4)
+                bar.setFixedHeight(20)
+                bar.setTextVisible(False)
+
+                status_lbl = QLabel(cq_text)
+                status_lbl.setFixedWidth(80)
+
+                row = len(self.eq_sensor_labels)
+                self.eq_sensor_layout.addWidget(name_lbl, row, 0)
+                self.eq_sensor_layout.addWidget(bar, row, 1)
+                self.eq_sensor_layout.addWidget(status_lbl, row, 2)
+                self.eq_sensor_labels[sensor_name] = (name_lbl, bar, status_lbl)
+
+            _, bar, status_lbl = self.eq_sensor_labels[sensor_name]
+            bar.setValue(cq_val_int)
+            bar.setStyleSheet(
+                f"QProgressBar {{ background-color: #21262d; border: 1px solid #30363d; border-radius: 4px; }}"
+                f"QProgressBar::chunk {{ background-color: {color}; border-radius: 3px; }}"
+            )
+            status_lbl.setText(cq_text)
+            status_lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
+
+        # Determine if quality is good enough to start training
+        if cq_list:
+            avg_cq = sum(int(v) if isinstance(v, (int, float)) else 0 for v in cq_list) / len(cq_list)
+            good_enough = avg_cq >= 2.0 and signal >= 2
+        else:
+            good_enough = False
+
+        if good_enough:
+            self.eq_status_lbl.setText("✅ Signal quality is sufficient for training.")
+            self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #3fb950; margin-top: 10px;")
+            self.eq_next_btn.setEnabled(True)
+        else:
+            self.eq_status_lbl.setText("⚠️ Improve sensor contact before training. Adjust the headset.")
+            self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #e3a01a; margin-top: 10px;")
+            self.eq_next_btn.setEnabled(False)
+
+    def _on_mc_config_update(self, data: dict):
+        if hasattr(self, 'settings_dialog_ref') and self.settings_dialog_ref:
+            self.settings_dialog_ref.handle_mc_config(data)
+
     def update_bci_telemetry(self, battery: int, signal: int):
         self.bci_telemetry_signal.emit(battery, signal)
 
     def _do_update_bci_telemetry(self, battery: int, signal: int):
         self.bci_telem_lbl.setText(f"Headset: {battery}% | Sig: {signal}/4")
-        if self.drone_client and self.drone_client.drone:
-            lr, fb, ud, yaw = self.drone_client.drone.get_rc_values()
-            self.drone_sim.update_rc(lr, fb, ud, yaw)
 
     def _override_action_for_test(self):
         if not self.drone_client: return
@@ -1315,7 +1856,7 @@ class TelloControllerApp(QMainWindow):
                 self.drone_client.drone.tello = self.tello
 
     def go_to_dashboard(self):
-        self.stacked_widget.setCurrentIndex(3)
+        self.stacked_widget.setCurrentIndex(8)
         is_sim = self.simulate_cb.isChecked()
         self.dash_drone_lbl.setText("🟢 Drone: Connected" if not is_sim else "🟡 Drone: Simulating")
         self.video_thread = VideoThread(tello=self.tello)
@@ -1324,11 +1865,11 @@ class TelloControllerApp(QMainWindow):
         self.video_thread.start()
 
     def update_telemetry(self):
-        if self.drone_client and self.stacked_widget.currentIndex() in [1, 3]:
+        if self.drone_client and self.stacked_widget.currentIndex() in [6, 8]:
             if self.drone_client and self.drone_client.drone:
                 lr, fb, ud, yaw = self.drone_client.drone.get_rc_values()
                 self.rc_lbl.setText(f"RC: lr={lr:+4d}  fb={fb:+4d}  ud={ud:+4d}  yaw={yaw:+4d}")
-                if self.stacked_widget.currentIndex() == 1:
+                if self.stacked_widget.currentIndex() == 6:
                     self.drone_sim.update_rc(lr, fb, ud, yaw)
                     self.test_yaw_bar.setValue(yaw)
                     self.test_fb_bar.setValue(fb)
@@ -1485,33 +2026,46 @@ class TelloControllerApp(QMainWindow):
         self.config["simulate"] = self.simulate_cb.isChecked()
         ConfigManager.save_config(self.config)
 
+    def _apply_config_to_client(self):
+        if self.drone_client and self.drone_client.program:
+            qp = self.drone_client.program.quaternion_processor
+            qp.invert_yaw = self.config.get("invert_yaw", False)
+            qp.sens_left = self.config.get("sens_left", 70.0)
+            qp.sens_right = self.config.get("sens_right", 70.0)
+            qp.sens_fwd = self.config.get("sens_fwd", 50.0)
+            qp.sens_back = self.config.get("sens_back", 50.0)
+            qp.movement_deadzone = self.config.get("deadzone", 0.02)
+            sw = self.config.get("smoothing_window", 4)
+            qp.SmoothingWindow = sw
+            qp._movement_buffer = __import__('collections').deque(maxlen=sw)
+            
+            # Update mental mappings
+            mappings = self.config.get("mental_mappings", [])
+            self.drone_client.program.mental_processor.mappings = mappings
+            if hasattr(self.drone_client, 'drone'):
+                mental_move_actions = {
+                    m.get("action") for m in mappings
+                    if m.get("action", "").startswith("Move")
+                }
+                self.drone_client.drone.set_mental_move_actions(mental_move_actions)
+
     def show_settings(self):
         dialog = SettingsDialog(self.config, self)
+        self.settings_dialog_ref = dialog
         if dialog.exec():
-            self.config = dialog.get_config()
-            ConfigManager.save_config(self.config)
+            new_config = dialog.get_config()
+            self.config.update(new_config)
             
-            # Apply to active client if running
-            if self.drone_client and self.drone_client.program:
-                qp = self.drone_client.program.quaternion_processor
-                qp.sens_left = self.config.get("sens_left", 70.0)
-                qp.sens_right = self.config.get("sens_right", 70.0)
-                qp.sens_fwd = self.config.get("sens_fwd", 50.0)
-                qp.sens_back = self.config.get("sens_back", 50.0)
-                qp.movement_deadzone = self.config.get("deadzone", 0.02)
-                sw = self.config.get("smoothing_window", 4)
-                qp.SmoothingWindow = sw
-                qp._movement_buffer = __import__('collections').deque(maxlen=sw)
+            # Save the new configuration
+            device_id = self.config.get("device_id", "")
+            if device_id:
+                device_type = device_id.split('-')[0]
+                ConfigManager.update_device_profile(self.config, device_type, new_config)
+            else:
+                ConfigManager.save_config(self.config)
                 
-                # Update mental mappings
-                mappings = self.config.get("mental_mappings", [])
-                self.drone_client.program.mental_processor.mappings = mappings
-                if hasattr(self.drone_client, 'drone'):
-                    mental_move_actions = {
-                        m.get("action") for m in mappings
-                        if m.get("action", "").startswith("Move")
-                    }
-                    self.drone_client.drone.set_mental_move_actions(mental_move_actions)
+            # Apply to active client if running
+            self._apply_config_to_client()
 
     def log(self, msg: str):
         ts = time.strftime("%H:%M:%S")
@@ -1575,6 +2129,11 @@ class SettingsDialog(QDialog):
             motion_layout.addLayout(row)
             return slider
 
+        self.invert_yaw_cb = QCheckBox("Invert Head Left/Right (Yaw)")
+        self.invert_yaw_cb.setChecked(self.config.get("invert_yaw", False))
+        self.invert_yaw_cb.stateChanged.connect(self._live_update)
+        motion_layout.addWidget(self.invert_yaw_cb)
+
         self.sens_left_slider = add_slider("Left Sens.", 1, 300, 1, lambda x: f"{x:.0f}", self.config.get("sens_left", 70.0),
             "Multiplies intensity when turning your head left (Yaw).")
         self.sens_right_slider = add_slider("Right Sens.", 1, 300, 1, lambda x: f"{x:.0f}", self.config.get("sens_right", 70.0),
@@ -1592,6 +2151,25 @@ class SettingsDialog(QDialog):
             "A hard safety limit (0-100) on how fast the drone is allowed to fly.")
         motion_group.setLayout(motion_layout)
         layout.addWidget(motion_group)
+        
+        # Emotiv API Settings
+        emotiv_group = QGroupBox("🧠 Emotiv API Settings")
+        self.emotiv_layout = QVBoxLayout()
+        self.emotiv_status_lbl = QLabel("Loading data from headset...")
+        self.emotiv_status_lbl.setStyleSheet("color: #8b949e;")
+        self.emotiv_layout.addWidget(self.emotiv_status_lbl)
+        emotiv_group.setLayout(self.emotiv_layout)
+        layout.addWidget(emotiv_group)
+        
+        self.mc_active_actions = []
+        self.mc_sensitivities = []
+        self.mc_sensitivity_sliders = []
+        
+        app = self.parent()
+        if app and hasattr(app, 'drone_client') and app.drone_client:
+            app.drone_client.get_mc_config()
+        else:
+            self.emotiv_status_lbl.setText("Headset not connected.")
 
         # Mental Commands
         mental_group = QGroupBox("🧠 Mental Commands")
@@ -1635,8 +2213,71 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
-    def _live_update(self):
+    def handle_mc_config(self, event: dict):
+        etype = event.get('type')
+        data = event.get('data')
+        
+        if etype == 'active_actions':
+            self.mc_active_actions = data
+        elif etype == 'training_threshold':
+            if hasattr(self, 'threshold_lbl'):
+                self.threshold_lbl.deleteLater()
+            self.threshold_lbl = QLabel(f"Current Threshold: {data.get('currentThreshold', 'N/A')} | Last Score: {data.get('lastTrainingScore', 'N/A')}")
+            self.threshold_lbl.setStyleSheet("font-weight: bold; color: #58a6ff;")
+            self.emotiv_layout.insertWidget(0, self.threshold_lbl)
+        elif etype == 'action_sensitivity':
+            self.mc_sensitivities = data
+            self.emotiv_status_lbl.hide()
+            self._build_sensitivity_sliders()
+            
+    def _build_sensitivity_sliders(self):
+        for s in self.mc_sensitivity_sliders:
+            s[0].deleteLater()
+        self.mc_sensitivity_sliders.clear()
+        
+        if not self.mc_active_actions or not self.mc_sensitivities:
+            return
+            
+        for i, action in enumerate(self.mc_active_actions):
+            if i >= len(self.mc_sensitivities): break
+            val = self.mc_sensitivities[i]
+            
+            row = QHBoxLayout()
+            lbl = QLabel(f"{action.capitalize()} Sens.")
+            lbl.setFixedWidth(110)
+            
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(1, 10)
+            slider.setSingleStep(1)
+            slider.setValue(val)
+            
+            val_lbl = QLabel(str(val))
+            val_lbl.setFixedWidth(20)
+            slider.valueChanged.connect(lambda v, l=val_lbl: l.setText(str(v)))
+            
+            row.addWidget(lbl)
+            row.addWidget(slider)
+            row.addWidget(val_lbl)
+            
+            w = QWidget()
+            w.setLayout(row)
+            self.emotiv_layout.addWidget(w)
+            
+            self.mc_sensitivity_sliders.append((w, slider))
+
+    def accept(self):
+        # Save emotiv sensitivities
+        if self.mc_active_actions and self.mc_sensitivity_sliders:
+            new_sens = [s[1].value() for s in self.mc_sensitivity_sliders]
+            if new_sens != self.mc_sensitivities:
+                app = self.parent()
+                if app and hasattr(app, 'drone_client') and app.drone_client:
+                    app.drone_client.set_mc_sensitivity(new_sens)
+        super().accept()
+
+    def _live_update(self, *args):
         # Push current slider values to config instantly
+        self.config["invert_yaw"] = self.invert_yaw_cb.isChecked()
         self.config["sens_left"] = float(self.sens_left_slider.value())
         self.config["sens_right"] = float(self.sens_right_slider.value())
         self.config["sens_fwd"] = float(self.sens_fwd_slider.value())

@@ -86,7 +86,7 @@ class Cortex(Dispatcher):
                 'inject_marker_done', 'update_marker_done', 'export_record_done', 'new_data_labels', 
                 'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
                 'new_met_data', 'new_pow_data', 'new_sys_data', 'headset_connected', 'headset_scanning_finished',
-                'subscribe_done', 'access_right_pending']
+                'subscribe_done', 'access_right_pending', 'query_headset_done']
     def __init__(self, client_id, client_secret, debug_mode=False, **kwargs):
         client_id = "JRn9yb9uZzo6z4ADqnN8bWhIrOQbwf8ZdmIyuc9H"
         client_secret = "gU2pSgmLFjpMgkTcGq5HUwgeuERaaKaJYbxgi8i1q1JvDd9XDLbJffZMO3bzb4qDiKl5WRtkR0yyb8yiLzHmr8aPesW9kT9W7q2flEFDNJdfrNwyTLehDZSwbFovbSFm"  
@@ -207,11 +207,9 @@ class Cortex(Dispatcher):
                 self.isHeadsetConnected = False
                 print('No headset found. Triggering refresh scan...')
                 self.refresh_headset_list()
+                self.emit('query_headset_done', data=self.headset_list)
             elif self.headset_id == '':
-                # set first headset is default headset
-                self.headset_id = self.headset_list[0]['id']
-                # call query headet again
-                self.query_headset()
+                self.emit('query_headset_done', data=self.headset_list)
             elif found_headset == False:
                 warnings.warn("Can not found the headset " + self.headset_id + ". Please make sure the id is correct.")
             elif found_headset == True:
@@ -378,7 +376,7 @@ class Cortex(Dispatcher):
             # We recommend the app should NOT call controlDevice("refresh") when a headset is connected, to have the best data stream quality.
             self.emit('headset_scanning_finished', data=warning_msg)
             if (self.isHeadsetConnected == False):
-                self.refresh_headset_list()
+                self.query_headset()
 
     def handle_stream_data(self, result_dic):
         if result_dic.get('com') != None:

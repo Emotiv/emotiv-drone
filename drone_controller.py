@@ -28,12 +28,18 @@ class TelloDroneClient:
                  tello=None, fix_indices: bool = False,
                  debug: bool = False, config: dict = None,
                  bci_status_callback=None, bci_telemetry_callback=None,
-                 profiles_callback=None):
+                 profiles_callback=None, headsets_callback=None,
+                 training_callback=None, dev_data_callback=None,
+                 mc_config_callback=None):
         self.c = Cortex(client_id, client_secret, debug_mode=debug)
         
         self.bci_status_callback = bci_status_callback
         self.bci_telemetry_callback = bci_telemetry_callback
         self.profiles_callback = profiles_callback
+        self.headsets_callback = headsets_callback
+        self.training_callback = training_callback
+        self.dev_data_callback = dev_data_callback
+        self.mc_config_callback = mc_config_callback
         
         self.latest_raw_mot = ""
         self.latest_raw_com = ""
@@ -73,8 +79,15 @@ class TelloDroneClient:
         self.c.bind(headset_scanning_finished=self.on_headset_scanning_finished)
         self.c.bind(subscribe_done=self.on_subscribe_done)
         self.c.bind(access_right_pending=self.on_access_right_pending)
+        self.c.bind(query_headset_done=self.on_query_headset_done)
         self.c.bind(query_profile_done=self.on_query_profile_done)
         self.c.bind(load_unload_profile_done=self.on_load_unload_profile_done)
+        self.c.bind(new_sys_data=self.on_new_sys_data)
+        
+        # MC config bindings
+        self.c.bind(get_mc_active_action_done=self.on_mc_active_action_done)
+        self.c.bind(mc_training_threshold_done=self.on_mc_training_threshold_done)
+        self.c.bind(mc_action_sensitivity_done=self.on_mc_action_sensitivity_done)
 
     def start(self, headset_id: str = '', profile_name: str = ''):
         if self.bci_status_callback:
@@ -137,8 +150,11 @@ class TelloDroneClient:
         data = kwargs.get('data') or {}
         signal = data.get('signal', 0)
         battery = data.get('batteryPercent', 0)
+        dev_cq = data.get('dev', [])
         if self.bci_telemetry_callback:
             self.bci_telemetry_callback(battery, signal)
+        if self.dev_data_callback:
+            self.dev_data_callback(signal, dev_cq)
 
     def on_headset_connected(self, *args, **kwargs):
         msg = "Headset connected (warning code 104)"
@@ -253,6 +269,22 @@ class TelloDroneClient:
         if self.bci_status_callback:
             self.bci_status_callback(f"PENDING_ACCESS:{msg}")
 
+    def on_query_headset_done(self, *args, **kwargs):
+        """Fired when queryHeadset returns the list of available headsets."""
+        headsets = kwargs.get('data', [])
+        print(f"[query_headset_done] {len(headsets)} headset(s) found", flush=True)
+        if self.headsets_callback:
+            self.headsets_callback(headsets)
+
+    def connect_headset(self, headset_id: str):
+        """Set the desired headset and initiate connection."""
+        if not headset_id:
+            return
+        self.c.set_wanted_headset(headset_id)
+        if self.bci_status_callback:
+            self.bci_status_callback(f"Connecting to headset '{headset_id}'...")
+        self.c.query_headset()
+
     def on_query_profile_done(self, *args, **kwargs):
         """Fired when queryProfile returns the list of available training profiles.
         Passes the list to the UI so the user can choose which profile to load.
@@ -286,6 +318,78 @@ class TelloDroneClient:
             print(f"[profile] {msg}", flush=True)
             if self.bci_status_callback:
                 self.bci_status_callback(f"PROFILE_LOADED:{msg}")
+            if self.training_callback:
+                self.training_callback(f"PROFILE_LOADED:{profile_name}")
+
+    def on_new_sys_data(self, *args, **kwargs):
+        """Handle sys stream data which emits training status."""
+        sys_data = kwargs.get('data')
+        if sys_data and len(sys_data) > 1:
+            event_name = sys_data[1]
+            print(f"[sys_data] event: {event_name}")
+            if self.training_callback:
+                self.training_callback(event_name)
+
+    # ──────────────────────────────────────────────
+    # MC Config Callbacks
+    # ──────────────────────────────────────────────
+    def on_mc_active_action_done(self, *args, **kwargs):
+        data = kwargs.get('data')
+        if self.mc_config_callback:
+            self.mc_config_callback({'type': 'active_actions', 'data': data})
+
+    def on_mc_training_threshold_done(self, *args, **kwargs):
+        data = kwargs.get('data')
+        if self.mc_config_callback:
+            self.mc_config_callback({'type': 'training_threshold', 'data': data})
+
+    def on_mc_action_sensitivity_done(self, *args, **kwargs):
+        data = kwargs.get('data')
+        if self.mc_config_callback:
+            self.mc_config_callback({'type': 'action_sensitivity', 'data': data})
+
+    def get_mc_config(self):
+        """Request the current MC configuration from Cortex."""
+        profile = getattr(self.c, 'profile_name', '')
+        if profile:
+            self.c.get_mental_command_active_action(profile)
+            self.c.get_mental_command_training_threshold(profile)
+            self.c.get_mental_command_action_sensitivity(profile)
+
+    def set_mc_sensitivity(self, values: list):
+        """Set the MC action sensitivity values."""
+        profile = getattr(self.c, 'profile_name', '')
+        if profile and values:
+            self.c.set_mental_command_action_sensitivity(profile, values)
+
+    # ──────────────────────────────────────────────
+    # Training
+    # ──────────────────────────────────────────────
+    def create_and_train_profile(self, profile_name: str):
+        """Create a new profile. The training process continues once it is loaded."""
+        print(f"Requesting creation of profile: {profile_name}")
+        self.c.profile_name = profile_name
+        self.c.setup_profile(profile_name, 'create')
+
+    def start_training(self, action: str):
+        """Start training for a specific action (e.g. 'neutral', 'push')"""
+        # Ensure sys stream is subscribed
+        self.c.sub_request(['sys'])
+        self.c.train_request('mentalCommand', action, 'start')
+
+    def accept_training(self, action: str):
+        """Accept the training data for the given action."""
+        self.c.train_request('mentalCommand', action, 'accept')
+
+    def reject_training(self, action: str):
+        """Reject the training data for the given action."""
+        self.c.train_request('mentalCommand', action, 'reject')
+
+    def save_profile(self):
+        """Save the profile after training is complete."""
+        profile_name = getattr(self.c, 'profile_name', '')
+        if profile_name:
+            self.c.setup_profile(profile_name, 'save')
 
     # ──────────────────────────────────────────────
     # Simulation mode

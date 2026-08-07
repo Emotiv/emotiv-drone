@@ -50,7 +50,8 @@ class QuaternionProcessor:
         self.sens_fwd: float = 50.0  # head down (forward)
         self.sens_back: float = 50.0 # head up (backward)
         
-        self.movement_deadzone: float = 0.03
+        self.movement_deadzone: float = 0.02
+        self.invert_yaw: bool = False
         self.current_sensitivity: float = self.base_sensitivity
 
         self._calibration_quaternion: Quaternion = Quaternion.identity()
@@ -125,6 +126,9 @@ class QuaternionProcessor:
             relative_yaw = 0.0
         if abs(relative_pitch) < self.movement_deadzone:
             relative_pitch = 0.0
+            
+        if self.invert_yaw:
+            relative_yaw = -relative_yaw
 
         # Apply independent directional sensitivity
         h_sens = self.sens_right if relative_yaw > 0 else self.sens_left
