@@ -147,12 +147,15 @@ the profile's active actions and erases them one at a time, neutral included.
 
 ### Ring Run and the leaderboard
 
-On the **Test Virtual Flight Controls** screen, type a name and press **Start
-Run**. Rings spawn ahead of the drone for 60 seconds; each one is 10 points, and
-the clock turns red for the last ten seconds. When time is up you get your score,
-your position, and the top five, with **Try Again**, **Show Leaderboard**, or
-**Finish — next player** (which returns to profile selection so the next person
-can train their own profile).
+On the **Fly the Simulator** screen, press **Start Run** — you play under the
+name you trained your profile with. Rings spawn ahead of the drone for 60
+seconds; each one is 10 points, and the clock turns red for the last ten. When
+time is up you get your score, your position and the top five, with **Try
+Again**, **Show Leaderboard**, or **Finish — next player**.
+
+Ending a run in fullscreen shows the same result over the fullscreen simulator,
+leaderboard included, so a timed round never forces anyone back to the windowed
+view.
 
 Scores live in `leaderboard.json` beside the other settings — one table per
 computer, no account and nothing uploaded. Leaving the test screen mid-run
