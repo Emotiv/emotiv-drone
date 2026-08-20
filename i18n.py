@@ -41,6 +41,35 @@ I18N = {
         "headset.item": "🎧 {id} ({status})",
         "headset.back": "⬅ Back to Auth",
 
+        "headset.label": "Headset:",
+        "headset.refresh": "🔄 Refresh",
+        "headset.refresh.tip": "Re-scan for headsets and reload the list from Cortex",
+        "headset.refreshing": "⏳ Scanning…",
+
+        # ── Handing the headset to the next player ───────────────────────────
+        "handoff.title": "Next player",
+        "handoff.heading": "What should happen to the profile \u201c{profile}\u201d?",
+        "handoff.body":
+            "Each player trains their own profile. Clearing it out keeps the list "
+            "short for whoever is next.",
+        "handoff.keep": "Keep it",
+        "handoff.keep.desc": "Leave the profile and its training exactly as they are.",
+        "handoff.reset": "♻ Reset the training",
+        "handoff.reset.desc":
+            "Keep the profile but erase every trained action, so the next person "
+            "starts from a clean baseline under the same name.",
+        "handoff.delete": "🗑 Delete the profile",
+        "handoff.delete.desc": "Remove it from Cortex entirely. This cannot be undone.",
+
+        "profile.deleted": "Profile '{profile}' deleted.",
+        "profile.reset_done": "Training erased for '{profile}'.",
+
+        "log.refreshing_headsets": "Re-scanning for headsets…",
+        "log.profile_deleting": "Deleting profile '{profile}'…",
+        "log.profile_deleted": "Profile '{profile}' deleted.",
+        "log.profile_resetting": "Erasing training for '{profile}'…",
+        "log.profile_reset": "Training erased for '{profile}'.",
+
         "badge.not_connected": "🔴 Not Connected",
         "badge.connecting": "🟡 Connecting...",
         "badge.waiting_approval": "🟡 Waiting for EMOTIV Launcher approval...",
@@ -123,11 +152,13 @@ I18N = {
         "train.finish": "Finish & Go to Test Controls",
 
         # ── Virtual flight test ──────────────────────────────────────────────
-        "test.title": "Step 2: Test Virtual Flight Controls",
+        "test.title": "Step 4: Fly the Simulator",
         "test.subtitle": (
-            "Practice moving your head and thinking commands before flying the real drone."
+            "Tilt your head to fly and use your trained mental commands. "
+            "Ready to compete? Start a 60-second Ring Run."
         ),
-        "test.state_group": "Virtual Drone State",
+        "test.state_group": "Simulator",
+        "test.status_group": "Status",
         "test.landed": "🛫 Status: Landed",
         "test.flying": "🛸 Status: Flying",
         "test.last_command_none": "Last Mental Command: None",
@@ -382,6 +413,31 @@ I18N = {
         "headset.item": "🎧 {id}（{status}）",
         "headset.back": "⬅ 返回授权",
 
+        "headset.label": "头戴设备：",
+        "headset.refresh": "🔄 刷新",
+        "headset.refresh.tip": "重新扫描头戴设备并从 Cortex 重新获取列表",
+        "headset.refreshing": "⏳ 扫描中…",
+
+        # ── Handing the headset to the next player ───────────────────────────
+        "handoff.title": "下一位玩家",
+        "handoff.heading": "配置文件「{profile}」要如何处理？",
+        "handoff.body": "每位玩家都会训练自己的配置文件。及时清理可以让列表保持简洁。",
+        "handoff.keep": "保留",
+        "handoff.keep.desc": "保持配置文件及其训练数据不变。",
+        "handoff.reset": "♻ 重置训练数据",
+        "handoff.reset.desc": "保留配置文件，但清除所有已训练的动作，让下一位玩家在同一个名称下从零开始。",
+        "handoff.delete": "🗑 删除配置文件",
+        "handoff.delete.desc": "从 Cortex 中彻底移除，此操作无法撤销。",
+
+        "profile.deleted": "配置文件「{profile}」已删除。",
+        "profile.reset_done": "「{profile}」的训练数据已清除。",
+
+        "log.refreshing_headsets": "正在重新扫描头戴设备…",
+        "log.profile_deleting": "正在删除配置文件「{profile}」…",
+        "log.profile_deleted": "配置文件「{profile}」已删除。",
+        "log.profile_resetting": "正在清除「{profile}」的训练数据…",
+        "log.profile_reset": "「{profile}」的训练数据已清除。",
+
         "badge.not_connected": "🔴 未连接",
         "badge.connecting": "🟡 连接中…",
         "badge.waiting_approval": "🟡 等待 EMOTIV Launcher 授权…",
@@ -462,9 +518,10 @@ I18N = {
         "train.finish": "完成并前往测试控制",
 
         # ── Virtual flight test ──────────────────────────────────────────────
-        "test.title": "第 2 步：测试虚拟飞行控制",
-        "test.subtitle": "在操控真实无人机之前，先练习头部动作和意念指令。",
-        "test.state_group": "虚拟无人机状态",
+        "test.title": "第 4 步：飞行模拟器",
+        "test.subtitle": "转动头部来飞行，并使用你训练好的意念指令。想比一比？开始 60 秒冲环挑战。",
+        "test.state_group": "模拟器",
+        "test.status_group": "状态",
         "test.landed": "🛫 状态：已降落",
         "test.flying": "🛸 状态：飞行中",
         "test.last_command_none": "最近的意念指令：无",

@@ -83,7 +83,7 @@ HEADSET_SCANNING_FINISHED = 142
 class Cortex(Dispatcher):
 
     _events_ = ['inform_error','create_session_done', 'query_profile_done', 'load_unload_profile_done', 
-                'save_profile_done', 'get_mc_active_action_done','mc_brainmap_done', 'mc_action_sensitivity_done', 
+                'save_profile_done', 'delete_profile_done', 'get_mc_active_action_done','mc_brainmap_done', 'mc_action_sensitivity_done', 
                 'mc_training_threshold_done', 'create_record_done', 'stop_record_done','warn_cortex_stop_all_sub', 'warn_record_post_processing_done',
                 'inject_marker_done', 'update_marker_done', 'export_record_done', 'new_data_labels', 
                 'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
@@ -289,6 +289,8 @@ class Cortex(Dispatcher):
                 self.emit('load_unload_profile_done', isLoaded=False)
             elif action == 'save':
                 self.emit('save_profile_done')
+            elif action == 'delete':
+                self.emit('delete_profile_done', name=result_dic.get('name', ''))
         elif req_id == GET_CURRENT_PROFILE_ID:
             print(result_dic)
             name = result_dic['name']

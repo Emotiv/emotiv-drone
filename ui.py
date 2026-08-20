@@ -47,6 +47,12 @@ PAGE_BRAINMAP = 9
 PAGE_GAMEOVER = 10
 PAGE_LEADERBOARD = 11
 
+# The real-drone path (Tello WiFi setup + flight dashboard) is built and wired
+# but hidden: right now the product is the simulator. The pages stay registered
+# so their indices and code paths are untouched — only the doors in are gone.
+# Flip this to True to bring the whole flow back.
+SHOW_REAL_DRONE = False
+
 # Length of one competitive ring run. Long enough to recover from a bad start,
 # short enough that a queue of people waiting their turn keeps moving.
 RUN_SECONDS = 60
@@ -62,6 +68,9 @@ class EmittingStream(QObject):
 
 STYLESHEET = """
 QMainWindow { background-color: #0d1117; }
+/* QDialog was never given a background, so Fusion painted the Settings and
+   handoff dialogs light grey with near-invisible text. */
+QDialog { background-color: #0d1117; }
 QWidget { color: #e6edf3; font-family: 'Inter', 'SF Pro Text', 'Segoe UI', sans-serif; }
 QGroupBox {
     border: 1px solid #30363d; border-radius: 10px;
@@ -1264,6 +1273,7 @@ class TelloControllerApp(QMainWindow):
     dev_data_signal = pyqtSignal(int, list)
     mc_config_signal = pyqtSignal(dict)
     brainmap_signal = pyqtSignal(list)
+    profile_admin_signal = pyqtSignal(dict)
     
     def __init__(self):
         super().__init__()
@@ -1289,6 +1299,7 @@ class TelloControllerApp(QMainWindow):
         self.dev_data_signal.connect(self._on_dev_data_update)
         self.mc_config_signal.connect(self._on_mc_config_update)
         self.brainmap_signal.connect(self._on_brain_map)
+        self.profile_admin_signal.connect(self._on_profile_admin)
 
         # Ring-run state. Declared before init_ui because the page builders
         # connect buttons that read it.
@@ -1451,6 +1462,16 @@ class TelloControllerApp(QMainWindow):
         self.headset_group = QGroupBox()
         bind(self.headset_group, "headset.group", "setTitle")
         headset_layout = QVBoxLayout(self.headset_group)
+        headset_hdr = QHBoxLayout()
+        headset_hdr.addWidget(bind(QLabel(), "headset.label"))
+        headset_hdr.addStretch()
+        self.refresh_headsets_btn = bind(QPushButton(), "headset.refresh")
+        bind(self.refresh_headsets_btn, "headset.refresh.tip", "setToolTip")
+        self.refresh_headsets_btn.setFixedWidth(90)
+        self.refresh_headsets_btn.clicked.connect(self._refresh_headsets)
+        headset_hdr.addWidget(self.refresh_headsets_btn)
+        headset_layout.addLayout(headset_hdr)
+
         self.headset_combo = QComboBox()
         self.headset_combo._placeholder_key = "headset.awaiting_auth"
         self.headset_combo.addItem(t("headset.awaiting_auth"))
@@ -1832,8 +1853,8 @@ class TelloControllerApp(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        container = QWidget(); container.setFixedWidth(700)
-        c_layout = QVBoxLayout(container); c_layout.setSpacing(20)
+        container = QWidget(); container.setFixedWidth(1000)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(14)
 
         title = QLabel(); title.setObjectName("titleLabel")
         bind(title, "test.title")
@@ -1866,28 +1887,39 @@ class TelloControllerApp(QMainWindow):
         c_layout.addWidget(game_group)
 
         top_split = QHBoxLayout()
+        top_split.setSpacing(12)
 
+        # Left: the simulator, given the room it deserves.
         state_group = QGroupBox()
         bind(state_group, "test.state_group", "setTitle")
         self.state_layout = QVBoxLayout()
+        self.drone_sim = DroneSimulatorWidget(self)
+        self.drone_sim.setMinimumSize(660, 430)
+        self.drone_sim.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                     QSizePolicy.Policy.Expanding)
+        self.state_layout.addWidget(self.drone_sim, stretch=1)
+        state_group.setLayout(self.state_layout)
+        top_split.addWidget(state_group, stretch=3)
+
+        # Right: everything that is a readout, stacked out of the way.
+        side = QVBoxLayout()
+        side.setSpacing(10)
+
+        status_group = QGroupBox()
+        bind(status_group, "test.status_group", "setTitle")
+        status_layout = QVBoxLayout(status_group)
         self.virtual_flight_state_lbl = QLabel()
         bind(self.virtual_flight_state_lbl, "test.landed")
-        self.virtual_flight_state_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #8b949e;")
-        self.state_layout.addWidget(self.virtual_flight_state_lbl)
+        self.virtual_flight_state_lbl.setStyleSheet(
+            "font-size: 17px; font-weight: bold; color: #8b949e;")
+        status_layout.addWidget(self.virtual_flight_state_lbl)
 
         self.last_action_lbl = QLabel()
         bind(self.last_action_lbl, "test.last_command_none")
         self.last_action_lbl.setStyleSheet("color: #58a6ff;")
-        self.state_layout.addWidget(self.last_action_lbl)
-
-        self.rc_lbl = QLabel("RC: lr=   0  fb=   0  ud=   0  yaw=   0")
-        self.rc_lbl.setStyleSheet("font-family: monospace; font-size: 14px; background: #0d1117; padding: 10px; border-radius: 5px;")
-        self.state_layout.addWidget(self.rc_lbl)
-        
-        self.drone_sim = DroneSimulatorWidget(self)
-        self.state_layout.addWidget(self.drone_sim)
-        state_group.setLayout(self.state_layout)
-        top_split.addWidget(state_group)
+        self.last_action_lbl.setWordWrap(True)
+        status_layout.addWidget(self.last_action_lbl)
+        side.addWidget(status_group)
 
         rc_group = QGroupBox()
         bind(rc_group, "test.rc_group", "setTitle")
@@ -1902,21 +1934,33 @@ class TelloControllerApp(QMainWindow):
         rc_grid.addWidget(self.test_yaw_bar, 0, 1)
         rc_grid.addWidget(bind(QLabel(), "test.pitch"), 1, 0)
         rc_grid.addWidget(self.test_fb_bar, 1, 1)
+        self.rc_lbl = QLabel("RC: lr=   0  fb=   0  ud=   0  yaw=   0")
+        self.rc_lbl.setStyleSheet(
+            "font-family: monospace; font-size: 12px; color: #58a6ff;"
+            "background: #0d1117; padding: 8px; border-radius: 5px;")
+        rc_grid.addWidget(self.rc_lbl, 2, 0, 1, 2)
         rc_group.setLayout(rc_grid)
-        top_split.addWidget(rc_group)
-        c_layout.addLayout(top_split)
+        side.addWidget(rc_group)
 
-        raw_group = QGroupBox()
-        bind(raw_group, "test.raw_group", "setTitle")
+        # Raw Cortex dumps: useful when debugging, noise the rest of the time.
+        self.raw_group = QGroupBox()
+        bind(self.raw_group, "test.raw_group", "setTitle")
         raw_layout = QVBoxLayout()
         self.raw_mot_lbl = QLabel("MOT: None")
-        self.raw_mot_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 11px;")
+        self.raw_mot_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 10px;")
+        self.raw_mot_lbl.setWordWrap(True)
         self.raw_com_lbl = QLabel("COM: None")
-        self.raw_com_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 11px;")
+        self.raw_com_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 10px;")
+        self.raw_com_lbl.setWordWrap(True)
         raw_layout.addWidget(self.raw_mot_lbl)
         raw_layout.addWidget(self.raw_com_lbl)
-        raw_group.setLayout(raw_layout)
-        c_layout.addWidget(raw_group)
+        self.raw_group.setLayout(raw_layout)
+        self.raw_group.setVisible(SHOW_REAL_DRONE)
+        side.addWidget(self.raw_group)
+
+        side.addStretch()
+        top_split.addLayout(side, stretch=1)
+        c_layout.addLayout(top_split, stretch=1)
 
         btn_row = QHBoxLayout()
         back_btn = bind(QPushButton(), "test.back")
@@ -1928,9 +1972,14 @@ class TelloControllerApp(QMainWindow):
         self.recenter_btn_p1 = bind(QPushButton(), "test.recenter")
         self.recenter_btn_p1.setObjectName("blueBtn")
         self.recenter_btn_p1.clicked.connect(self.reset_headset)
-        next_btn = bind(QPushButton(), "test.next"); next_btn.setObjectName("primaryBtn")
-        next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_DRONE))
-        btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn); btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(next_btn)
+        self.real_drone_btn = bind(QPushButton(), "test.next")
+        self.real_drone_btn.setObjectName("primaryBtn")
+        self.real_drone_btn.clicked.connect(
+            lambda: self.stacked_widget.setCurrentIndex(PAGE_DRONE))
+        self.real_drone_btn.setVisible(SHOW_REAL_DRONE)
+
+        btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn)
+        btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(self.real_drone_btn)
         c_layout.addLayout(btn_row)
 
         layout.addWidget(container)
@@ -2223,13 +2272,53 @@ class TelloControllerApp(QMainWindow):
         self._start_ring_run()
 
     def _finish_session(self):
-        """Hand the headset to the next person: back to profile selection."""
+        """Hand the headset over — and decide what happens to this profile.
+
+        Without this the profile list just grows: every visitor trains a new one
+        and none are ever cleaned up. Asking here is the only moment where the
+        answer is obvious, because the person who owns the profile is still in
+        the chair.
+        """
+        profile = self.config.get("profile_name", "")
+        choice = "keep"
+        if profile and self.drone_client:
+            dialog = HandoffDialog(profile, self)
+            dialog.exec()
+            choice = dialog.choice
+
+        if choice == "delete":
+            self._run_profile_admin(
+                lambda: self.drone_client.delete_profile(profile),
+                "log.profile_deleting", profile)
+            self.config["profile_name"] = ""
+        elif choice == "reset":
+            self._run_profile_admin(
+                lambda: self.drone_client.reset_profile_training(profile),
+                "log.profile_resetting", profile)
+
         self.current_entry = None
         self.player_name_input.clear()
         self.drone_sim.end_run()
         self.drone_sim.reset_flight()
         self.stacked_widget.setCurrentIndex(PAGE_PROFILE)
         self.log(t("log.session_handoff"))
+
+    def _run_profile_admin(self, fn, log_key: str, profile: str):
+        """Profile admin talks to Cortex with blocking sends and sleeps."""
+        self.log(t(log_key, profile=profile))
+        threading.Thread(target=fn, daemon=True).start()
+
+    def _on_profile_admin(self, event: dict):
+        kind = event.get("type")
+        profile = event.get("profile", "")
+        if kind == "deleted":
+            self.log(t("log.profile_deleted", profile=profile))
+            bind(self.profile_status_lbl, "profile.deleted", profile=profile)
+        elif kind == "reset":
+            self.log(t("log.profile_reset", profile=profile))
+            bind(self.profile_status_lbl, "profile.reset_done", profile=profile)
+        self.profile_status_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;")
 
     # ── Result rendering ─────────────────────────────────────────────────────
     def _clear_grid(self, grid):
@@ -2456,7 +2545,8 @@ class TelloControllerApp(QMainWindow):
             training_callback=self.training_signal.emit,
             dev_data_callback=self.dev_data_signal.emit,
             mc_config_callback=self.mc_config_signal.emit,
-            brainmap_callback=self.brainmap_signal.emit
+            brainmap_callback=self.brainmap_signal.emit,
+            profile_admin_callback=self.profile_admin_signal.emit
         )
 
         self.client_thread = threading.Thread(
@@ -2543,6 +2633,28 @@ class TelloControllerApp(QMainWindow):
             self.log(t("log.client_not_init"))
             self.connect_headset_btn.setEnabled(True)
             bind(self.connect_headset_btn, "headset.connect")
+
+    def _refresh_headsets(self):
+        """Re-scan for headsets. Cortex needs controlDevice/refresh then a
+        fresh queryHeadset, and both are blocking sends, so run them off-thread."""
+        if not self.drone_client:
+            self.log(t("log.client_not_init"))
+            return
+        self.refresh_headsets_btn.setEnabled(False)
+        bind(self.refresh_headsets_btn, "headset.refreshing")
+        self.log(t("log.refreshing_headsets"))
+
+        def done():
+            self.refresh_headsets_btn.setEnabled(True)
+            bind(self.refresh_headsets_btn, "headset.refresh")
+
+        def work():
+            try:
+                self.drone_client.refresh_headsets()
+            finally:
+                QTimer.singleShot(0, done)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _populate_profiles(self, profiles: list):
         """Populate the profile dropdown so the user can pick which one to load."""
@@ -3238,6 +3350,55 @@ class TelloControllerApp(QMainWindow):
             try: self.tello.end()
             except: pass
         event.accept()
+
+class HandoffDialog(QDialog):
+    """Asked once, when a player hands the headset to the next person.
+
+    Three outcomes, and the wording matters more than the buttons: most people
+    running a demo want the profile gone, but deleting someone's training by
+    accident is not recoverable, so Keep is the default and Delete is the one
+    styled as destructive.
+    """
+
+    def __init__(self, profile: str, parent=None):
+        super().__init__(parent)
+        self.choice = "keep"
+        self.setWindowTitle(t("handoff.title"))
+        self.setMinimumWidth(460)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        heading = QLabel(t("handoff.heading", profile=profile))
+        heading.setWordWrap(True)
+        heading.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
+        layout.addWidget(heading)
+
+        body = QLabel(t("handoff.body"))
+        body.setWordWrap(True)
+        body.setStyleSheet("font-size: 13px; color: #8b949e;")
+        layout.addWidget(body)
+
+        for key, desc_key, choice, obj in (
+            ("handoff.keep", "handoff.keep.desc", "keep", "primaryBtn"),
+            ("handoff.reset", "handoff.reset.desc", "reset", ""),
+            ("handoff.delete", "handoff.delete.desc", "delete", "dangerBtn"),
+        ):
+            btn = QPushButton(t(key))
+            if obj:
+                btn.setObjectName(obj)
+            btn.clicked.connect(lambda _, c=choice: self._pick(c))
+            layout.addWidget(btn)
+
+            desc = QLabel(t(desc_key))
+            desc.setWordWrap(True)
+            desc.setStyleSheet("font-size: 11px; color: #6e7681; padding: 0 4px 6px 4px;")
+            layout.addWidget(desc)
+
+    def _pick(self, choice: str):
+        self.choice = choice
+        self.accept()
+
 
 class SettingsDialog(QDialog):
     def __init__(self, config, parent=None):

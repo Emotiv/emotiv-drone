@@ -30,7 +30,8 @@ class TelloDroneClient:
                  bci_status_callback=None, bci_telemetry_callback=None,
                  profiles_callback=None, headsets_callback=None,
                  training_callback=None, dev_data_callback=None,
-                 mc_config_callback=None, brainmap_callback=None):
+                 mc_config_callback=None, brainmap_callback=None,
+                 profile_admin_callback=None):
         self.c = Cortex(client_id, client_secret, debug_mode=debug)
 
         self.bci_status_callback = bci_status_callback
@@ -41,6 +42,10 @@ class TelloDroneClient:
         self.dev_data_callback = dev_data_callback
         self.mc_config_callback = mc_config_callback
         self.brainmap_callback = brainmap_callback
+        self.profile_admin_callback = profile_admin_callback
+        # Filled in by mentalCommandActiveAction; a reset needs to know which
+        # actions actually carry training data.
+        self.last_active_actions = []
 
         self.latest_raw_mot = ""
         self.latest_raw_com = ""
@@ -90,6 +95,7 @@ class TelloDroneClient:
         self.c.bind(mc_training_threshold_done=self.on_mc_training_threshold_done)
         self.c.bind(mc_action_sensitivity_done=self.on_mc_action_sensitivity_done)
         self.c.bind(mc_brainmap_done=self.on_mc_brainmap_done)
+        self.c.bind(delete_profile_done=self.on_delete_profile_done)
 
     def start(self, headset_id: str = '', profile_name: str = ''):
         if self.bci_status_callback:
@@ -337,6 +343,8 @@ class TelloDroneClient:
     # ──────────────────────────────────────────────
     def on_mc_active_action_done(self, *args, **kwargs):
         data = kwargs.get('data')
+        if isinstance(data, list):
+            self.last_active_actions = data
         if self.mc_config_callback:
             self.mc_config_callback({'type': 'active_actions', 'data': data})
 
@@ -360,6 +368,65 @@ class TelloDroneClient:
         data = kwargs.get('data') or []
         if self.brainmap_callback:
             self.brainmap_callback(data)
+
+    def on_delete_profile_done(self, *args, **kwargs):
+        name = kwargs.get('name', '')
+        print(f"[profile] deleted '{name}'", flush=True)
+        if self.profile_admin_callback:
+            self.profile_admin_callback({'type': 'deleted', 'profile': name})
+        # The list the UI is showing still contains it.
+        self.c.query_profile()
+
+    def delete_profile(self, profile_name: str):
+        """Delete a profile outright.
+
+        Cortex will not touch a profile that is currently loaded on the headset,
+        so unload first — same constraint emotiv-brain-light hits when switching
+        profiles. The unload reply is asynchronous, hence the short wait rather
+        than firing both in the same tick.
+        """
+        if not profile_name:
+            return
+        try:
+            self.c.setup_profile(profile_name, 'unload')
+        except Exception as e:
+            print(f"[profile] unload before delete failed (continuing): {e}", flush=True)
+        time.sleep(0.6)
+        self.c.setup_profile(profile_name, 'delete')
+
+    def reset_profile_training(self, profile_name: str = ""):
+        """Erase the trained data but keep the profile.
+
+        Cortex has no single "reset profile" call — training data is erased one
+        action at a time, so this walks the profile's active actions. Neutral is
+        included: a stale neutral baseline is exactly what makes a retrained
+        profile behave worse than a fresh one.
+        """
+        actions = list(self.last_active_actions) or ['neutral', 'push']
+        for action in actions:
+            try:
+                self.c.train_request('mentalCommand', action, 'erase')
+                time.sleep(0.35)
+            except Exception as e:
+                print(f"[profile] could not erase '{action}': {e}", flush=True)
+        name = profile_name or getattr(self.c, 'profile_name', '')
+        if name:
+            self.c.setup_profile(name, 'save')
+        if self.profile_admin_callback:
+            self.profile_admin_callback({'type': 'reset', 'profile': name})
+
+    def refresh_headsets(self):
+        """Re-scan for headsets, then ask for the list again.
+
+        controlDevice/refresh makes Cortex rescan Bluetooth/USB; it does not
+        return the list, so queryHeadset still has to follow it.
+        """
+        try:
+            self.c.refresh_headset_list()
+        except Exception as e:
+            print(f"[headset] refresh failed: {e}", flush=True)
+        time.sleep(1.2)
+        self.c.query_headset()
 
     def get_brain_map(self):
         """Ask Cortex how well separated the trained actions ended up."""

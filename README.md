@@ -104,6 +104,25 @@ The easiest way to start is via the included shell script:
 ./run.sh
 ```
 
+### Scope: the simulator
+
+The real-drone path — Tello WiFi setup and the flight dashboard — is complete and
+still in the tree, but its entry points are hidden while the simulator is the
+product. Set `SHOW_REAL_DRONE = True` in `ui.py` to bring it back; no code was
+removed and the page indices are unchanged.
+
+### Handing the headset to the next player
+
+**Finish — next player** asks what to do with the profile that was just trained:
+keep it, erase its training but keep the name, or delete it from Cortex. Asking
+at that moment is deliberate — it is the only point where the person who owns the
+profile is still there to answer, and otherwise the list just grows with every
+visitor.
+
+Cortex will not modify a profile that is loaded on the headset, so both actions
+unload it first. There is no single "reset profile" call either: the reset walks
+the profile's active actions and erases them one at a time, neutral included.
+
 ### Ring Run and the leaderboard
 
 On the **Test Virtual Flight Controls** screen, type a name and press **Start
