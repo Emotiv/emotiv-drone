@@ -131,11 +131,12 @@ is the screen where you discover the training is no good.
 
 ### Handing the headset to the next player
 
-**Finish — next player** asks what to do with the profile that was just trained:
-keep it, erase its training but keep the name, or delete it from Cortex. Asking
-at that moment is deliberate — it is the only point where the person who owns the
-profile is still there to answer, and otherwise the list just grows with every
-visitor.
+**Finish — next player** asks what to do with the profile that was just trained.
+Deleting it is the leading option, because the thing worth keeping — the score —
+already lives in `leaderboard.json`, independent of Cortex. The name stays on the
+board for the record while the training itself is binned, so the next person
+starts clean. Resetting the training (same profile, no trained data) and keeping
+it outright are the other two.
 
 Cortex will not modify a profile that is loaded on the headset, so both actions
 unload it first. There is no single "reset profile" call either: the reset walks

@@ -2436,6 +2436,14 @@ class TelloControllerApp(QMainWindow):
                 lambda: self.drone_client.delete_profile(profile),
                 "log.profile_deleting", profile)
             self.config["profile_name"] = ""
+            ConfigManager.save_config(self.config)
+
+        if choice in ("delete", "reset"):
+            # The sensitivity panel is showing the outgoing player's actions;
+            # blank it so the next profile rebuilds it from its own training.
+            self.mc_active_actions = []
+            self.mc_sensitivities = []
+            self._build_inline_mc_sliders()
         elif choice == "reset":
             self._run_profile_admin(
                 lambda: self.drone_client.reset_profile_training(profile),
@@ -3662,15 +3670,18 @@ class HandoffDialog(QDialog):
         heading.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
         layout.addWidget(heading)
 
-        body = QLabel(t("handoff.body"))
+        body = QLabel(t("handoff.body", profile=profile))
         body.setWordWrap(True)
         body.setStyleSheet("font-size: 13px; color: #8b949e;")
         layout.addWidget(body)
 
+        # Delete leads, because the score is what people care about and that
+        # already lives on the leaderboard independently of Cortex. The profile
+        # itself is a per-player throwaway: train, play, bin it, next person.
         for key, desc_key, choice, obj in (
-            ("handoff.keep", "handoff.keep.desc", "keep", "primaryBtn"),
+            ("handoff.delete", "handoff.delete.desc", "delete", "primaryBtn"),
             ("handoff.reset", "handoff.reset.desc", "reset", ""),
-            ("handoff.delete", "handoff.delete.desc", "delete", "dangerBtn"),
+            ("handoff.keep", "handoff.keep.desc", "keep", ""),
         ):
             btn = QPushButton(t(key))
             if obj:
