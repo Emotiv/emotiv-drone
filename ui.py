@@ -2854,7 +2854,14 @@ class TelloControllerApp(QMainWindow):
             if i >= len(values):
                 break
             row = QHBoxLayout()
-            name = QLabel(t(f"action.{action}") if i18n.has(f"action.{action}") else action)
+            # bind, not a bare t(): these labels live on a persistent page, so
+            # they have to follow a language switch like everything else.
+            name = QLabel()
+            key = f"action.{action}"
+            if i18n.has(key):
+                bind(name, key)
+            else:
+                name.setText(action)
             name.setFixedWidth(58)
             name.setStyleSheet("font-size: 11px; color: #8b949e;")
             slider = QSlider(Qt.Orientation.Horizontal)
