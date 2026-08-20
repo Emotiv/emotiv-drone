@@ -45,6 +45,28 @@ I18N = {
         "headset.item": "🎧 {id} ({status})",
         "headset.back": "⬅ Back to Auth",
 
+        # ── Live tuning on the simulator screen ──────────────────────────────
+        "tune.group": "🎛 Sensitivity",
+        "tune.tilt": "Head tilt",
+        "tune.deadzone": "Deadzone",
+        "tune.mental": "Mental commands",
+        "tune.mental_waiting":
+            "Load a trained profile to tune how easily each command fires.",
+
+        "retrain.button": "♻ Reset & Retrain",
+        "retrain.tip": "Erase this profile's training and go through it again",
+        "retrain.title": "Reset the training?",
+        "retrain.body":
+            "Every trained action in \u201c{profile}\u201d will be erased, including the "
+            "neutral baseline, and you will go through training again from the "
+            "signal check. The profile itself is kept.",
+        "retrain.confirm": "Erase and retrain",
+
+        "common.cancel": "Cancel",
+
+        "log.mc_sensitivity": "Mental command sensitivity set to {values}.",
+        "log.no_profile_to_retrain": "Load a trained profile before retraining.",
+
         "headset.label": "Headset:",
         "headset.refresh": "🔄 Refresh",
         "headset.refresh.tip": "Re-scan for headsets and reload the list from Cortex",
@@ -85,15 +107,16 @@ I18N = {
 
         # ── Step 3 · profile ─────────────────────────────────────────────────
         "profile.title": "Step 3: Training Profile",
-        "profile.group": "Available Profiles",
+        "profile.group": "Training Profile",
         "profile.label": "Profile:",
         "profile.refresh": "🔄 Refresh",
         "profile.refresh.tip": "Re-fetch profile list from Cortex",
         "profile.connect_first": "— connect headset first —",
         "profile.load": "🧠 Load Selected Profile",
         "profile.loading_btn": "⏳ Loading...",
-        "profile.hint": "Select a training profile after connecting.",
-        "profile.new_placeholder": "New Profile Name...",
+        "profile.hint": "Create a profile with your name, then train it.",
+        "profile.create_label": "Enter your name and train:",
+        "profile.new_placeholder": "Your name...",
         "profile.create_train": "🧠 Create & Train",
         "profile.none_found": "⚠️ No profiles found",
         "profile.none_hint": "No training profiles found. Create one in EMOTIV Launcher.",
@@ -232,6 +255,8 @@ I18N = {
         # ── Ring run / leaderboard ───────────────────────────────────────────
         "game.group": "🏁 Ring Run — {seconds} seconds",
         "game.name_placeholder": "Your name",
+        "game.playing_as": "Playing as",
+        "game.no_profile": "— train a profile first —",
         "game.start": "▶ Start Run",
         "game.running": "Run in progress…",
         "game.show_leaderboard": "🏆 Show Leaderboard",
@@ -420,6 +445,24 @@ I18N = {
         "headset.item": "🎧 {id}（{status}）",
         "headset.back": "⬅ 返回授权",
 
+        # ── Live tuning on the simulator screen ──────────────────────────────
+        "tune.group": "🎛 灵敏度",
+        "tune.tilt": "头部倾斜",
+        "tune.deadzone": "死区",
+        "tune.mental": "意念指令",
+        "tune.mental_waiting": "加载一个已训练的配置文件，即可调整各指令的触发难度。",
+
+        "retrain.button": "♻ 重置并重新训练",
+        "retrain.tip": "清除此配置文件的训练数据并重新训练一遍",
+        "retrain.title": "要重置训练数据吗？",
+        "retrain.body": "「{profile}」中所有已训练的动作都会被清除，包括中性基线，并将从信号检查开始重新训练。配置文件本身会保留。",
+        "retrain.confirm": "清除并重新训练",
+
+        "common.cancel": "取消",
+
+        "log.mc_sensitivity": "意念指令灵敏度已设置为 {values}。",
+        "log.no_profile_to_retrain": "请先加载一个已训练的配置文件再重新训练。",
+
         "headset.label": "头戴设备：",
         "headset.refresh": "🔄 刷新",
         "headset.refresh.tip": "重新扫描头戴设备并从 Cortex 重新获取列表",
@@ -456,15 +499,16 @@ I18N = {
 
         # ── Step 3 · profile ─────────────────────────────────────────────────
         "profile.title": "第 3 步：训练配置文件",
-        "profile.group": "可用的配置文件",
+        "profile.group": "训练配置文件",
         "profile.label": "配置文件：",
         "profile.refresh": "🔄 刷新",
         "profile.refresh.tip": "重新从 Cortex 获取配置文件列表",
         "profile.connect_first": "— 请先连接头戴设备 —",
         "profile.load": "🧠 加载所选配置文件",
         "profile.loading_btn": "⏳ 加载中…",
-        "profile.hint": "连接完成后请选择一个训练配置文件。",
-        "profile.new_placeholder": "新配置文件名称…",
+        "profile.hint": "用你的名字创建一个配置文件，然后开始训练。",
+        "profile.create_label": "输入你的名字并开始训练：",
+        "profile.new_placeholder": "你的名字…",
         "profile.create_train": "🧠 新建并训练",
         "profile.none_found": "⚠️ 未找到配置文件",
         "profile.none_hint": "未找到训练配置文件。请在 EMOTIV Launcher 中创建一个。",
@@ -596,6 +640,8 @@ I18N = {
         # ── Ring run / leaderboard ───────────────────────────────────────────
         "game.group": "🏁 冲环挑战 — {seconds} 秒",
         "game.name_placeholder": "你的名字",
+        "game.playing_as": "当前玩家",
+        "game.no_profile": "— 请先训练一个配置文件 —",
         "game.start": "▶ 开始挑战",
         "game.running": "挑战进行中…",
         "game.show_leaderboard": "🏆 查看排行榜",
@@ -784,6 +830,28 @@ def t(key: str, **params) -> str:
 _REGISTRY = []
 
 
+def _needs_mnemonic_escape(widget, setter: str) -> bool:
+    """Whether this widget will read '&' as a keyboard accelerator.
+
+    Buttons, checkboxes and group-box titles do; plain labels do not. Detected by
+    duck typing so this module stays free of any Qt import: QAbstractButton has
+    setShortcut, QGroupBox has setTitle plus setCheckable.
+    """
+    if setter == "setTitle":
+        return True
+    if setter != "setText":
+        return False
+    return hasattr(widget, "setShortcut")
+
+
+def _apply(widget, setter: str, text: str):
+    # "Reset & Retrain" would otherwise render as "Reset _Retrain" with R
+    # underlined. Doing it here means translators never have to know.
+    if "&" in text and _needs_mnemonic_escape(widget, setter):
+        text = text.replace("&", "&&")
+    getattr(widget, setter)(text)
+
+
 def bind(widget, key: str, setter: str = "setText", **params):
     """Set `widget`'s text from `key` and remember how, for later retranslation.
 
@@ -793,7 +861,7 @@ def bind(widget, key: str, setter: str = "setText", **params):
         widget._i18n_spec = {}
         _REGISTRY.append(widget)
     widget._i18n_spec[setter] = (key, params)
-    getattr(widget, setter)(t(key, **params))
+    _apply(widget, setter, t(key, **params))
     return widget
 
 
@@ -812,7 +880,7 @@ def retranslate():
     for widget in list(_REGISTRY):
         try:
             for setter, (key, params) in widget._i18n_spec.items():
-                getattr(widget, setter)(t(key, **params))
+                _apply(widget, setter, t(key, **params))
         except RuntimeError:
             # Underlying Qt object was deleted.
             _REGISTRY.remove(widget)

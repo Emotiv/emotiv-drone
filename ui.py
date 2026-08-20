@@ -53,6 +53,11 @@ PAGE_LEADERBOARD = 11
 # Flip this to True to bring the whole flow back.
 SHOW_REAL_DRONE = False
 
+# Picking from a list of past profiles is off: each player creates their own,
+# trains it, plays under that name, and the profile is dealt with at handoff.
+# Listing everyone who came before just turns into clutter nobody prunes.
+SHOW_PROFILE_LIST = False
+
 # Length of one competitive ring run. Long enough to recover from a bad start,
 # short enough that a queue of people waiting their turn keeps moving.
 RUN_SECONDS = 60
@@ -1308,6 +1313,8 @@ class TelloControllerApp(QMainWindow):
         self._run_deadline = 0.0
         self.current_player = ""
         self.current_entry = None
+        self.mc_active_actions = []
+        self.mc_sensitivities = []
         self._board_return_page = PAGE_TEST
 
         self.stdout_stream = EmittingStream()
@@ -1398,6 +1405,16 @@ class TelloControllerApp(QMainWindow):
         self.log(t("log.auto_connecting"))
         self._start_bci()
 
+    def _refresh_player_name(self):
+        """Show whichever profile is loaded — that is the name the board gets."""
+        profile = (self.config.get("profile_name") or "").strip()
+        if profile:
+            self.player_name_lbl.setText(profile)
+            i18n.unbind(self.player_name_lbl)
+        else:
+            bind(self.player_name_lbl, "game.no_profile")
+        self.start_run_btn.setEnabled(bool(profile))
+
     def _on_page_changed(self, index: int):
         """Leaving the test screen mid-run abandons the run.
 
@@ -1405,6 +1422,14 @@ class TelloControllerApp(QMainWindow):
         onto a results screen for a round they walked away from. _finish_ring_run
         stops the timer before it navigates, so a normal finish never lands here.
         """
+        if index == PAGE_TEST:
+            self._refresh_player_name()
+
+        if index == PAGE_TEST and self.drone_client and not self.mc_sensitivities:
+            # Cortex only answers per profile, and the profile is not known
+            # until it has been loaded — so ask on arrival, not at startup.
+            threading.Thread(target=self.drone_client.get_mc_config, daemon=True).start()
+
         if index != PAGE_TEST and self.run_timer.isActive():
             self.run_timer.stop()
             self.drone_sim.end_run()
@@ -1547,7 +1572,7 @@ class TelloControllerApp(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        container = QWidget(); container.setFixedWidth(600)
+        container = QWidget(); container.setFixedWidth(680)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
         title = QLabel(); title.setObjectName("titleLabel")
@@ -1558,6 +1583,12 @@ class TelloControllerApp(QMainWindow):
         bind(self.profile_group, "profile.group", "setTitle")
         profile_layout = QVBoxLayout(self.profile_group)
 
+        # Everything that exists only to reuse an earlier profile lives in this
+        # container, so hiding it is one call and none of the wiring changes.
+        self.profile_list_box = QWidget()
+        list_layout = QVBoxLayout(self.profile_list_box)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+
         profile_hdr = QHBoxLayout()
         profile_hdr.addWidget(bind(QLabel(), "profile.label"))
         profile_hdr.addStretch()
@@ -1567,7 +1598,7 @@ class TelloControllerApp(QMainWindow):
         self.refresh_profiles_btn.setFixedWidth(90)
         self.refresh_profiles_btn.clicked.connect(self._refresh_profiles)
         profile_hdr.addWidget(self.refresh_profiles_btn)
-        profile_layout.addLayout(profile_hdr)
+        list_layout.addLayout(profile_hdr)
 
         self.profile_combo = QComboBox()
         self.profile_combo._placeholder_key = "profile.connect_first"
@@ -1579,13 +1610,16 @@ class TelloControllerApp(QMainWindow):
             "QComboBox QAbstractItemView { background-color: #161b22; color: #e6edf3;"
             "selection-background-color: #1f6feb; border: 1px solid #30363d; }"
         )
-        profile_layout.addWidget(self.profile_combo)
+        list_layout.addWidget(self.profile_combo)
 
         self.load_profile_btn = QPushButton()
         bind(self.load_profile_btn, "profile.load")
         self.load_profile_btn.setObjectName("primaryBtn")
         self.load_profile_btn.clicked.connect(self._load_selected_profile)
-        profile_layout.addWidget(self.load_profile_btn)
+        list_layout.addWidget(self.load_profile_btn)
+
+        self.profile_list_box.setVisible(SHOW_PROFILE_LIST)
+        profile_layout.addWidget(self.profile_list_box)
 
         self.profile_status_lbl = QLabel()
         bind(self.profile_status_lbl, "profile.hint")
@@ -1594,7 +1628,12 @@ class TelloControllerApp(QMainWindow):
         )
         profile_layout.addWidget(self.profile_status_lbl)
         
-        # New: Create & Train Profile Section
+        # The one path that stays visible: name yourself, then train.
+        create_lbl = bind(QLabel(), "profile.create_label")
+        create_lbl.setStyleSheet(
+            "font-size: 13px; color: #58a6ff; font-weight: bold; padding-top: 4px;")
+        profile_layout.addWidget(create_lbl)
+
         train_layout = QHBoxLayout()
         self.new_profile_input = QLineEdit()
         bind(self.new_profile_input, "profile.new_placeholder", "setPlaceholderText")
@@ -1904,11 +1943,13 @@ class TelloControllerApp(QMainWindow):
         bind(game_group, "game.group", "setTitle", seconds=RUN_SECONDS)
         game_row = QHBoxLayout(game_group)
 
-        self.player_name_input = QLineEdit()
-        bind(self.player_name_input, "game.name_placeholder", "setPlaceholderText")
-        self.player_name_input.setMaxLength(24)
-        self.player_name_input.returnPressed.connect(self._start_ring_run)
-        game_row.addWidget(self.player_name_input, stretch=1)
+        # The player already named themselves when they created the training
+        # profile. Asking again invites a second, different name on the board.
+        game_row.addWidget(bind(QLabel(), "game.playing_as"))
+        self.player_name_lbl = bind(QLabel(), "game.no_profile")
+        self.player_name_lbl.setStyleSheet(
+            "font-size: 15px; font-weight: bold; color: #f1c40f;")
+        game_row.addWidget(self.player_name_lbl, stretch=1)
 
         self.start_run_btn = bind(QPushButton(), "game.start")
         self.start_run_btn.setObjectName("primaryBtn")
@@ -1978,6 +2019,74 @@ class TelloControllerApp(QMainWindow):
         rc_group.setLayout(rc_grid)
         side.addWidget(rc_group)
 
+        # Sensitivity, tunable while flying. Getting the feel right belongs here
+        # rather than behind the Configurations dialog: this is the screen where
+        # you can actually see the effect of a change, and the one you want it
+        # settled on before starting a timed run.
+        sens_group = QGroupBox()
+        bind(sens_group, "tune.group", "setTitle")
+        sens_layout = QVBoxLayout(sens_group)
+        sens_layout.setSpacing(4)
+
+        tilt_lbl = bind(QLabel(), "tune.tilt")
+        tilt_lbl.setStyleSheet("font-size: 11px; color: #58a6ff; font-weight: bold;")
+        sens_layout.addWidget(tilt_lbl)
+
+        self.tilt_sliders = {}
+        tilt_grid = QGridLayout()
+        tilt_grid.setSpacing(4)
+        for row, (key, label, default) in enumerate((
+                ("sens_left", "◀", 70.0), ("sens_right", "▶", 70.0),
+                ("sens_fwd", "▲", 50.0), ("sens_back", "▼", 50.0))):
+            arrow = QLabel(label)
+            arrow.setFixedWidth(16)
+            arrow.setStyleSheet("font-size: 12px; color: #8b949e;")
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(1, 300)
+            slider.setValue(int(self.config.get(key, default)))
+            value = QLabel(str(slider.value()))
+            value.setFixedWidth(28)
+            value.setStyleSheet("font-size: 11px; color: #8b949e;")
+            slider.valueChanged.connect(
+                lambda v, k=key, lab=value: self._on_tilt_sens(k, v, lab))
+            tilt_grid.addWidget(arrow, row, 0)
+            tilt_grid.addWidget(slider, row, 1)
+            tilt_grid.addWidget(value, row, 2)
+            self.tilt_sliders[key] = slider
+        sens_layout.addLayout(tilt_grid)
+
+        dead_row = QHBoxLayout()
+        dead_lbl = bind(QLabel(), "tune.deadzone")
+        dead_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
+        self.dead_slider_inline = QSlider(Qt.Orientation.Horizontal)
+        self.dead_slider_inline.setRange(0, 500)
+        self.dead_slider_inline.setValue(int(self.config.get("deadzone", 0.02) * 1000))
+        self.dead_value_lbl = QLabel(f"{self.dead_slider_inline.value()/1000:.3f}")
+        self.dead_value_lbl.setFixedWidth(38)
+        self.dead_value_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
+        self.dead_slider_inline.valueChanged.connect(self._on_deadzone)
+        dead_row.addWidget(dead_lbl); dead_row.addWidget(self.dead_slider_inline)
+        dead_row.addWidget(self.dead_value_lbl)
+        sens_layout.addLayout(dead_row)
+
+        mc_lbl = bind(QLabel(), "tune.mental")
+        mc_lbl.setStyleSheet(
+            "font-size: 11px; color: #58a6ff; font-weight: bold; padding-top: 6px;")
+        sens_layout.addWidget(mc_lbl)
+
+        # Filled in once Cortex answers mentalCommandActionSensitivity — the
+        # action list is whatever this profile was actually trained on.
+        self.mc_sens_layout = QVBoxLayout()
+        self.mc_sens_layout.setSpacing(4)
+        sens_layout.addLayout(self.mc_sens_layout)
+        self.mc_sens_hint = bind(QLabel(), "tune.mental_waiting")
+        self.mc_sens_hint.setWordWrap(True)
+        self.mc_sens_hint.setStyleSheet("font-size: 10px; color: #6e7681;")
+        sens_layout.addWidget(self.mc_sens_hint)
+
+        self.inline_mc_sliders = []
+        side.addWidget(sens_group)
+
         # Raw Cortex dumps: useful when debugging, noise the rest of the time.
         self.raw_group = QGroupBox()
         bind(self.raw_group, "test.raw_group", "setTitle")
@@ -2008,6 +2117,10 @@ class TelloControllerApp(QMainWindow):
         self.recenter_btn_p1 = bind(QPushButton(), "test.recenter")
         self.recenter_btn_p1.setObjectName("blueBtn")
         self.recenter_btn_p1.clicked.connect(self.reset_headset)
+
+        self.retrain_btn = bind(QPushButton(), "retrain.button")
+        bind(self.retrain_btn, "retrain.tip", "setToolTip")
+        self.retrain_btn.clicked.connect(self._reset_and_retrain)
         self.real_drone_btn = bind(QPushButton(), "test.next")
         self.real_drone_btn.setObjectName("primaryBtn")
         self.real_drone_btn.clicked.connect(
@@ -2015,7 +2128,8 @@ class TelloControllerApp(QMainWindow):
         self.real_drone_btn.setVisible(SHOW_REAL_DRONE)
 
         btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn)
-        btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(self.real_drone_btn)
+        btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(self.retrain_btn)
+        btn_row.addWidget(self.real_drone_btn)
         c_layout.addLayout(btn_row)
 
         layout.addWidget(container)
@@ -2266,12 +2380,7 @@ class TelloControllerApp(QMainWindow):
     def _start_ring_run(self):
         if self.run_timer.isActive():
             return
-        name = self.player_name_input.text().strip()
-        if not name:
-            # Fall back to the trained profile — in a demo queue that is almost
-            # always the person actually sitting in the chair.
-            name = self.config.get("profile_name", "") or t("game.anonymous")
-            self.player_name_input.setText(name)
+        name = (self.config.get("profile_name") or "").strip() or t("game.anonymous")
         self.current_player = name
 
         self.drone_sim.start_run(RUN_SECONDS)
@@ -2333,7 +2442,7 @@ class TelloControllerApp(QMainWindow):
                 "log.profile_resetting", profile)
 
         self.current_entry = None
-        self.player_name_input.clear()
+        self._refresh_player_name()
         self.drone_sim.end_run()
         self.drone_sim.reset_flight()
         self.stacked_widget.setCurrentIndex(PAGE_PROFILE)
@@ -2670,6 +2779,97 @@ class TelloControllerApp(QMainWindow):
             self.connect_headset_btn.setEnabled(True)
             bind(self.connect_headset_btn, "headset.connect")
 
+    # ── Live sensitivity tuning ──────────────────────────────────────────────
+    def _on_tilt_sens(self, key: str, value: int, label: QLabel):
+        label.setText(str(value))
+        self.config[key] = float(value)
+        ConfigManager.save_config(self.config)
+        self._apply_config_to_client()
+
+    def _on_deadzone(self, value: int):
+        self.dead_value_lbl.setText(f"{value/1000:.3f}")
+        self.config["deadzone"] = value / 1000.0
+        ConfigManager.save_config(self.config)
+        self._apply_config_to_client()
+
+    def _build_inline_mc_sliders(self):
+        """One slider per trained action, straight from Cortex's own list."""
+        for widget, _ in self.inline_mc_sliders:
+            widget.deleteLater()
+        self.inline_mc_sliders.clear()
+
+        actions = self.mc_active_actions
+        values = self.mc_sensitivities
+        if not actions or not values:
+            self.mc_sens_hint.setVisible(True)
+            return
+
+        self.mc_sens_hint.setVisible(False)
+        for i, action in enumerate(actions):
+            if i >= len(values):
+                break
+            row = QHBoxLayout()
+            name = QLabel(t(f"action.{action}") if i18n.has(f"action.{action}") else action)
+            name.setFixedWidth(58)
+            name.setStyleSheet("font-size: 11px; color: #8b949e;")
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(1, 10)
+            slider.setValue(int(values[i]))
+            value_lbl = QLabel(str(slider.value()))
+            value_lbl.setFixedWidth(20)
+            value_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
+            slider.valueChanged.connect(lambda v, l=value_lbl: l.setText(str(v)))
+            # Cortex writes to the profile on every call, so only push when the
+            # user lets go rather than on every pixel of drag.
+            slider.sliderReleased.connect(self._push_mc_sensitivity)
+            row.addWidget(name); row.addWidget(slider); row.addWidget(value_lbl)
+
+            holder = QWidget()
+            holder.setLayout(row)
+            self.mc_sens_layout.addWidget(holder)
+            self.inline_mc_sliders.append((holder, slider))
+
+    def _push_mc_sensitivity(self):
+        if not (self.drone_client and self.inline_mc_sliders):
+            return
+        values = [s.value() for _, s in self.inline_mc_sliders]
+        if values == list(self.mc_sensitivities):
+            return
+        self.mc_sensitivities = values
+        self.drone_client.set_mc_sensitivity(values)
+        self.log(t("log.mc_sensitivity", values=", ".join(str(v) for v in values)))
+
+    # ── Reset and redo the training ──────────────────────────────────────────
+    def _reset_and_retrain(self):
+        """Wipe the trained actions and walk the user back through training.
+
+        Offered here because this is where you find out the training is no good
+        — the drone twitches, or a command never fires — and the alternative was
+        finishing a run you already know is spoiled.
+        """
+        profile = self.config.get("profile_name", "")
+        if not profile or not self.drone_client:
+            self.log(t("log.no_profile_to_retrain"))
+            return
+
+        dialog = ConfirmDialog(
+            t("retrain.title"),
+            t("retrain.body", profile=profile),
+            t("retrain.confirm"),
+            self,
+        )
+        dialog.exec()
+        if not dialog.confirmed:
+            return
+
+        self.log(t("log.profile_resetting", profile=profile))
+        threading.Thread(
+            target=lambda: self.drone_client.reset_profile_training(profile),
+            daemon=True).start()
+        # Straight to the signal check: retraining on bad contact is what
+        # produced the unusable profile in the first place.
+        self.stacked_widget.setCurrentIndex(PAGE_EQ)
+
     def _refresh_headsets(self):
         """Re-scan for headsets. Cortex needs controlDevice/refresh then a
         fresh queryHeadset, and both are blocking sends, so run them off-thread."""
@@ -2909,6 +3109,10 @@ class TelloControllerApp(QMainWindow):
             self.log(t("log.enter_profile_name"))
             return
             
+        # This name is the player's identity from here on: the profile, the
+        # leaderboard row, and what the handoff prompt offers to clean up.
+        self.config["profile_name"] = new_name
+        ConfigManager.save_config(self.config)
         self.current_training_action = "neutral"
         self.stacked_widget.setCurrentIndex(PAGE_EQ)
         self.drone_client.create_and_train_profile(new_name)
@@ -3057,6 +3261,16 @@ class TelloControllerApp(QMainWindow):
             self.eq_next_btn.setEnabled(False)
 
     def _on_mc_config_update(self, data: dict):
+        # The settings dialog and the inline panel both want this; keep a copy
+        # on the app so the panel survives the dialog being closed.
+        kind = data.get('type')
+        if kind == 'active_actions':
+            self.mc_active_actions = data.get('data') or []
+            self._build_inline_mc_sliders()
+        elif kind == 'action_sensitivity':
+            self.mc_sensitivities = data.get('data') or []
+            self._build_inline_mc_sliders()
+
         if hasattr(self, 'settings_dialog_ref') and self.settings_dialog_ref:
             self.settings_dialog_ref.handle_mc_config(data)
 
@@ -3388,6 +3602,42 @@ class TelloControllerApp(QMainWindow):
             try: self.tello.end()
             except: pass
         event.accept()
+
+class ConfirmDialog(QDialog):
+    """Yes/no for a destructive step. Cancel is the default; confirm is red."""
+
+    def __init__(self, title: str, body: str, confirm_label: str, parent=None):
+        super().__init__(parent)
+        self.confirmed = False
+        self.setWindowTitle(title)
+        self.setMinimumWidth(420)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+
+        heading = QLabel(title)
+        heading.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+
+        message = QLabel(body)
+        message.setWordWrap(True)
+        message.setStyleSheet("font-size: 13px; color: #8b949e;")
+        layout.addWidget(message)
+
+        row = QHBoxLayout()
+        cancel = QPushButton(t("common.cancel"))
+        cancel.clicked.connect(self.reject)
+        confirm = QPushButton(confirm_label)
+        confirm.setObjectName("dangerBtn")
+        confirm.clicked.connect(self._confirm)
+        row.addStretch(); row.addWidget(cancel); row.addWidget(confirm)
+        layout.addLayout(row)
+
+    def _confirm(self):
+        self.confirmed = True
+        self.accept()
+
 
 class HandoffDialog(QDialog):
     """Asked once, when a player hands the headset to the next person.

@@ -111,6 +111,24 @@ still in the tree, but its entry points are hidden while the simulator is the
 product. Set `SHOW_REAL_DRONE = True` in `ui.py` to bring it back; no code was
 removed and the page indices are unchanged.
 
+### One profile per player
+
+The list of existing profiles is hidden (`SHOW_PROFILE_LIST` in `ui.py`). Each
+player types their name, trains, and plays under that name — the profile name is
+the leaderboard name, so nobody ends up on the board twice under two spellings.
+
+### Tuning before a run
+
+The simulator screen carries a **Sensitivity** panel: head-tilt response per
+direction, deadzone, and one slider per trained mental command. Changes apply
+live, which is the point — this is the only screen where you can see the effect.
+Mental-command values are pushed to Cortex on slider release rather than during
+the drag, since each call writes to the profile.
+
+**♻ Reset & Retrain** erases the profile's training, including the neutral
+baseline, and sends you back through the signal check. It is there because this
+is the screen where you discover the training is no good.
+
 ### Handing the headset to the next player
 
 **Finish — next player** asks what to do with the profile that was just trained:
