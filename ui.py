@@ -1317,6 +1317,9 @@ class TelloControllerApp(QMainWindow):
 
         self.init_ui()
         self.load_settings()
+        # Deferred so the event loop is up: _start_bci spawns a thread and
+        # expects to be able to post back into a running UI.
+        QTimer.singleShot(0, self._maybe_auto_connect)
 
     def init_ui(self):
         central = QWidget()
@@ -1366,6 +1369,34 @@ class TelloControllerApp(QMainWindow):
 
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
+
+    def _credentials_ready(self) -> bool:
+        """True when there is a real saved credential pair to connect with.
+
+        DEFAULT_CONFIG seeds the placeholders below on first run, so "non-empty"
+        is not enough — those would happily trigger a doomed auto-connect.
+        """
+        cid = (self.config.get("client_id") or "").strip()
+        secret = (self.config.get("client_secret") or "").strip()
+        placeholders = {"", "YOUR_CLIENT_ID", "YOUR_CLIENT_SECRET"}
+        return cid not in placeholders and secret not in placeholders
+
+    def _maybe_auto_connect(self):
+        """Skip the credentials form when we already know how to log in.
+
+        Landing on a filled-in form and asking the user to press Authenticate is
+        pure friction once the credentials are stored — and this app is meant to
+        be handed between people, so every extra step gets paid repeatedly. The
+        form stays one click away via 'Back to Auth' on the headset screen.
+        """
+        if not self.auto_connect_cb.isChecked():
+            return
+        if self.simulate_cb.isChecked():
+            return
+        if not self._credentials_ready():
+            return
+        self.log(t("log.auto_connecting"))
+        self._start_bci()
 
     def _on_page_changed(self, index: int):
         """Leaving the test screen mid-run abandons the run.
@@ -1430,6 +1461,11 @@ class TelloControllerApp(QMainWindow):
         self.simulate_cb = QCheckBox()
         bind(self.simulate_cb, "auth.simulate")
         auth_layout.addWidget(self.simulate_cb)
+
+        self.auto_connect_cb = QCheckBox()
+        bind(self.auto_connect_cb, "auth.auto_connect")
+        bind(self.auto_connect_cb, "auth.auto_connect.tip", "setToolTip")
+        auth_layout.addWidget(self.auto_connect_cb)
 
         self.connect_bci_btn = QPushButton(); self.connect_bci_btn.setObjectName("blueBtn")
         bind(self.connect_bci_btn, "auth.connect")
@@ -3267,6 +3303,7 @@ class TelloControllerApp(QMainWindow):
         self.client_id_input.setText(c.get("client_id", ""))
         self.client_secret_input.setText(c.get("client_secret", ""))
         self.simulate_cb.setChecked(c.get("simulate", False))
+        self.auto_connect_cb.setChecked(c.get("auto_connect", True))
         # Profile combo is populated dynamically; just remember the saved name
         # so _populate_profiles can re-select it once the list arrives.
 
@@ -3276,6 +3313,7 @@ class TelloControllerApp(QMainWindow):
         self.config["language"] = i18n.get_lang()
         # profile_name is set automatically by _populate_profiles when profiles arrive
         self.config["simulate"] = self.simulate_cb.isChecked()
+        self.config["auto_connect"] = self.auto_connect_cb.isChecked()
         ConfigManager.save_config(self.config)
 
     def _apply_config_to_client(self):

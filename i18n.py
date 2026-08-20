@@ -27,6 +27,10 @@ I18N = {
         "auth.client_id": "Client ID:",
         "auth.client_secret": "Client Secret:",
         "auth.simulate": "Simulation Mode (Test UI without headset)",
+        "auth.auto_connect": "Connect automatically on startup",
+        "auth.auto_connect.tip":
+            "Once a Client ID and Secret are saved, skip this screen and start "
+            "connecting as soon as the app opens.",
         "auth.connect": "Authenticate",
         "auth.retry": "Retry Connection",
         "auth.logs": "BCI Connection Logs:",
@@ -64,6 +68,7 @@ I18N = {
         "profile.deleted": "Profile '{profile}' deleted.",
         "profile.reset_done": "Training erased for '{profile}'.",
 
+        "log.auto_connecting": "Saved credentials found — connecting automatically.",
         "log.refreshing_headsets": "Re-scanning for headsets…",
         "log.profile_deleting": "Deleting profile '{profile}'…",
         "log.profile_deleted": "Profile '{profile}' deleted.",
@@ -399,6 +404,8 @@ I18N = {
         "auth.client_id": "Client ID：",
         "auth.client_secret": "Client Secret：",
         "auth.simulate": "模拟模式（无需头戴设备即可测试界面）",
+        "auth.auto_connect": "启动时自动连接",
+        "auth.auto_connect.tip": "保存 Client ID 与 Secret 后，打开应用即跳过本页面并直接开始连接。",
         "auth.connect": "授权",
         "auth.retry": "重新连接",
         "auth.logs": "脑机接口连接日志：",
@@ -432,6 +439,7 @@ I18N = {
         "profile.deleted": "配置文件「{profile}」已删除。",
         "profile.reset_done": "「{profile}」的训练数据已清除。",
 
+        "log.auto_connecting": "找到已保存的凭据 — 正在自动连接。",
         "log.refreshing_headsets": "正在重新扫描头戴设备…",
         "log.profile_deleting": "正在删除配置文件「{profile}」…",
         "log.profile_deleted": "配置文件「{profile}」已删除。",

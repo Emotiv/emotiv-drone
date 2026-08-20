@@ -10,6 +10,10 @@ DEFAULT_CONFIG = {
     # UI language: "en" or "zh"
     "language": "en",
 
+    # Skip the credentials screen and connect on launch once a real Client ID
+    # and Secret are stored. Turn off from the checkbox on that screen.
+    "auto_connect": True,
+
     # Emotiv Cortex API
     "client_id": "YOUR_CLIENT_ID",
     "client_secret": "YOUR_CLIENT_SECRET",
