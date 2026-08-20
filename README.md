@@ -131,12 +131,15 @@ is the screen where you discover the training is no good.
 
 ### Handing the headset to the next player
 
-**Finish — next player** asks what to do with the profile that was just trained.
-Deleting it is the leading option, because the thing worth keeping — the score —
-already lives in `leaderboard.json`, independent of Cortex. The name stays on the
-board for the record while the training itself is binned, so the next person
-starts clean. Resetting the training (same profile, no trained data) and keeping
-it outright are the other two.
+**Finish — next player** deletes the trained profile, rescans for headsets and
+drops you on the device list. Nothing to confirm: the score already lives in
+`leaderboard.json` independent of Cortex, so the name stays on the board for the
+record while the training itself is binned. Landing on the device list rather
+than profile creation is deliberate — the next person may be on a different
+headset.
+
+To keep a profile and only redo its training, use **♻ Reset & Retrain** on the
+simulator screen instead.
 
 Cortex will not modify a profile that is loaded on the headset, so both actions
 unload it first. There is no single "reset profile" call either: the reset walks

@@ -72,25 +72,6 @@ I18N = {
         "headset.refresh.tip": "Re-scan for headsets and reload the list from Cortex",
         "headset.refreshing": "⏳ Scanning…",
 
-        # ── Handing the headset to the next player ───────────────────────────
-        "handoff.title": "Next player",
-        "handoff.heading": "What should happen to the profile \u201c{profile}\u201d?",
-        "handoff.body":
-            "The score is already saved \u2014 \u201c{profile}\u201d stays on the leaderboard "
-            "whatever you pick here. The training profile itself is only needed "
-            "while that player is flying.",
-        "handoff.keep": "Keep it",
-        "handoff.keep.desc":
-            "Leave it on the headset \u2014 only worth it if this player is coming back.",
-        "handoff.reset": "♻ Reset the training",
-        "handoff.reset.desc":
-            "Keep the profile but erase every trained action, so the next person "
-            "starts from a clean baseline under the same name.",
-        "handoff.delete": "🗑 Delete the profile",
-        "handoff.delete.desc":
-            "Removes the training from Cortex so the next player starts clean. "
-            "The leaderboard entry is untouched.",
-
         "profile.deleted": "Profile '{profile}' deleted.",
         "profile.reset_done": "Training erased for '{profile}'.",
 
@@ -474,17 +455,6 @@ I18N = {
         "headset.refresh": "🔄 刷新",
         "headset.refresh.tip": "重新扫描头戴设备并从 Cortex 重新获取列表",
         "headset.refreshing": "⏳ 扫描中…",
-
-        # ── Handing the headset to the next player ───────────────────────────
-        "handoff.title": "下一位玩家",
-        "handoff.heading": "配置文件「{profile}」要如何处理？",
-        "handoff.body": "成绩已经保存 —— 无论这里选什么，「{profile}」都会留在排行榜上。训练配置文件只在该玩家飞行期间需要。",
-        "handoff.keep": "保留",
-        "handoff.keep.desc": "保留在头戴设备上 —— 只有这位玩家还会回来时才值得。",
-        "handoff.reset": "♻ 重置训练数据",
-        "handoff.reset.desc": "保留配置文件，但清除所有已训练的动作，让下一位玩家在同一个名称下从零开始。",
-        "handoff.delete": "🗑 删除配置文件",
-        "handoff.delete.desc": "从 Cortex 中移除训练数据，让下一位玩家从零开始。排行榜记录不受影响。",
 
         "profile.deleted": "配置文件「{profile}」已删除。",
         "profile.reset_done": "「{profile}」的训练数据已清除。",

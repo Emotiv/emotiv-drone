@@ -141,6 +141,10 @@ QProgressBar {
     text-align: center; color: #e6edf3; height: 18px;
 }
 QProgressBar::chunk { background-color: #58a6ff; border-radius: 4px; }
+/* A QScrollArea styles only its frame; the viewport widget inside keeps the
+   default palette, which is how the leaderboard ended up on white. */
+QScrollArea { background-color: #0b0f15; border: 1px solid #30363d; border-radius: 10px; }
+QScrollArea > QWidget > QWidget { background: transparent; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
 QScrollBar::handle:vertical { background: #30363d; border-radius: 5px; min-height: 30px; }
 QScrollBar::handle:vertical:hover { background: #484f58; }
@@ -2481,8 +2485,6 @@ class TelloControllerApp(QMainWindow):
             self.toggle_fullscreen()
 
         if dialog.choice == "finish":
-            self.stacked_widget.setCurrentIndex(PAGE_GAMEOVER)
-            self._populate_gameover()
             self._finish_session()
         else:
             self._populate_gameover()
@@ -2493,43 +2495,36 @@ class TelloControllerApp(QMainWindow):
         self._start_ring_run()
 
     def _finish_session(self):
-        """Hand the headset over — and decide what happens to this profile.
+        """Finish: bin the training and hand the headset to the next person.
 
-        Without this the profile list just grows: every visitor trains a new one
-        and none are ever cleaned up. Asking here is the only moment where the
-        answer is obvious, because the person who owns the profile is still in
-        the chair.
+        No prompt any more. The score already lives on the leaderboard under the
+        player's name, so the trained profile has nothing left worth keeping, and
+        asking about it every single handoff was a question with one sensible
+        answer. Landing on the device list rather than profile creation is
+        deliberate too: the next person may well be on a different headset, so
+        the list is rescanned on the way in.
         """
-        profile = self.config.get("profile_name", "")
-        choice = "keep"
+        profile = (self.config.get("profile_name") or "").strip()
         if profile and self.drone_client:
-            dialog = HandoffDialog(profile, self)
-            dialog.exec()
-            choice = dialog.choice
-
-        if choice == "delete":
             self._run_profile_admin(
                 lambda: self.drone_client.delete_profile(profile),
                 "log.profile_deleting", profile)
             self.config["profile_name"] = ""
             ConfigManager.save_config(self.config)
 
-        if choice in ("delete", "reset"):
-            # The sensitivity panel is showing the outgoing player's actions;
-            # blank it so the next profile rebuilds it from its own training.
-            self.mc_active_actions = []
-            self.mc_sensitivities = []
-            self._build_inline_mc_sliders()
-        elif choice == "reset":
-            self._run_profile_admin(
-                lambda: self.drone_client.reset_profile_training(profile),
-                "log.profile_resetting", profile)
+        # The sensitivity panel is showing the outgoing player's actions; blank
+        # it so the next profile rebuilds it from its own training.
+        self.mc_active_actions = []
+        self.mc_sensitivities = []
+        self._build_inline_mc_sliders()
 
         self.current_entry = None
         self._refresh_player_name()
         self.drone_sim.end_run()
         self.drone_sim.reset_flight()
-        self.stacked_widget.setCurrentIndex(PAGE_PROFILE)
+
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
+        self._refresh_headsets()
         self.log(t("log.session_handoff"))
 
     def _run_profile_admin(self, fn, log_key: str, profile: str):
@@ -3848,58 +3843,6 @@ class ConfirmDialog(QDialog):
 
     def _confirm(self):
         self.confirmed = True
-        self.accept()
-
-
-class HandoffDialog(QDialog):
-    """Asked once, when a player hands the headset to the next person.
-
-    Three outcomes, and the wording matters more than the buttons: most people
-    running a demo want the profile gone, but deleting someone's training by
-    accident is not recoverable, so Keep is the default and Delete is the one
-    styled as destructive.
-    """
-
-    def __init__(self, profile: str, parent=None):
-        super().__init__(parent)
-        self.choice = "keep"
-        self.setWindowTitle(t("handoff.title"))
-        self.setMinimumWidth(460)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-
-        heading = QLabel(t("handoff.heading", profile=profile))
-        heading.setWordWrap(True)
-        heading.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
-        layout.addWidget(heading)
-
-        body = QLabel(t("handoff.body", profile=profile))
-        body.setWordWrap(True)
-        body.setStyleSheet("font-size: 13px; color: #8b949e;")
-        layout.addWidget(body)
-
-        # Delete leads, because the score is what people care about and that
-        # already lives on the leaderboard independently of Cortex. The profile
-        # itself is a per-player throwaway: train, play, bin it, next person.
-        for key, desc_key, choice, obj in (
-            ("handoff.delete", "handoff.delete.desc", "delete", "primaryBtn"),
-            ("handoff.reset", "handoff.reset.desc", "reset", ""),
-            ("handoff.keep", "handoff.keep.desc", "keep", ""),
-        ):
-            btn = QPushButton(t(key))
-            if obj:
-                btn.setObjectName(obj)
-            btn.clicked.connect(lambda _, c=choice: self._pick(c))
-            layout.addWidget(btn)
-
-            desc = QLabel(t(desc_key))
-            desc.setWordWrap(True)
-            desc.setStyleSheet("font-size: 11px; color: #6e7681; padding: 0 4px 6px 4px;")
-            layout.addWidget(desc)
-
-    def _pick(self, choice: str):
-        self.choice = choice
         self.accept()
 
 
