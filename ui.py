@@ -908,6 +908,51 @@ class DroneSimulatorWidget(QWidget):
                 self.main_app.toggle_fullscreen()
 
 
+def clear_grid(grid):
+    """Empty a QGridLayout, unbinding any translated labels it held."""
+    while grid.count():
+        item = grid.takeAt(0)
+        w = item.widget()
+        if w is not None:
+            i18n.unbind(w)
+            w.deleteLater()
+
+
+def add_board_row(grid, row, rank, entry, highlight):
+    """One leaderboard line. Shared so the windowed and fullscreen results
+    cannot drift apart visually."""
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    cells = [
+        medals.get(rank, f"{rank}."),
+        entry.get("name", "?"),
+        str(entry.get("score", 0)),
+        t("game.coins_short", coins=entry.get("coins", 0)),
+    ]
+    widths = [46, None, 70, 90]
+    colour = "#f1c40f" if highlight else ("#e6edf3" if rank <= 3 else "#8b949e")
+    weight = "bold" if highlight or rank <= 3 else "normal"
+
+    for col, (text, width) in enumerate(zip(cells, widths)):
+        lbl = QLabel(text)
+        if width:
+            lbl.setFixedWidth(width)
+        if col == 2:
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        style = (f"font-size: 14px; color: {colour}; font-weight: {weight};"
+                 "padding: 6px 8px;")
+        if highlight:
+            if col == 0:
+                style += ("background-color: #2b2109; border-top-left-radius: 6px;"
+                          "border-bottom-left-radius: 6px;")
+            elif col == len(cells) - 1:
+                style += ("background-color: #2b2109; border-top-right-radius: 6px;"
+                          "border-bottom-right-radius: 6px;")
+            else:
+                style += "background-color: #2b2109;"
+        lbl.setStyleSheet(style)
+        grid.addWidget(lbl, row, col)
+
+
 class BrainMapWidget(QWidget):
     """Scatter plot of mentalCommandBrainMap.
 
@@ -2409,8 +2454,39 @@ class TelloControllerApp(QMainWindow):
             profile=self.config.get("profile_name", ""))
         self.log(t("log.run_finished", name=self.current_player, score=score))
 
-        self._populate_gameover()
-        self.stacked_widget.setCurrentIndex(PAGE_GAMEOVER)
+        if self.drone_sim.isFullScreen():
+            self._show_fullscreen_result()
+        else:
+            self._populate_gameover()
+            self.stacked_widget.setCurrentIndex(PAGE_GAMEOVER)
+
+    def _show_fullscreen_result(self):
+        """Result over the fullscreen simulator, so nobody has to leave it."""
+        entries = leaderboard.load()
+        rank = leaderboard.rank_of(self.current_entry, entries)
+
+        dialog = FullscreenResultDialog(
+            self.current_entry, rank, len(entries), entries, self)
+        dialog.setGeometry(self.drone_sim.screen().geometry())
+        dialog.showFullScreen()
+        dialog.exec()
+
+        if dialog.choice == "again":
+            self._start_ring_run()          # stays fullscreen
+            return
+
+        # Everything else means leaving fullscreen, so the main window is
+        # visible again before we navigate it.
+        if self.drone_sim.isFullScreen():
+            self.toggle_fullscreen()
+
+        if dialog.choice == "finish":
+            self.stacked_widget.setCurrentIndex(PAGE_GAMEOVER)
+            self._populate_gameover()
+            self._finish_session()
+        else:
+            self._populate_gameover()
+            self.stacked_widget.setCurrentIndex(PAGE_GAMEOVER)
 
     def _try_again(self):
         self.stacked_widget.setCurrentIndex(PAGE_TEST)
@@ -2475,44 +2551,10 @@ class TelloControllerApp(QMainWindow):
 
     # ── Result rendering ─────────────────────────────────────────────────────
     def _clear_grid(self, grid):
-        while grid.count():
-            item = grid.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                i18n.unbind(w)
-                w.deleteLater()
+        clear_grid(grid)
 
     def _add_board_row(self, grid, row, rank, entry, highlight):
-        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        cells = [
-            medals.get(rank, f"{rank}."),
-            entry.get("name", "?"),
-            str(entry.get("score", 0)),
-            t("game.coins_short", coins=entry.get("coins", 0)),
-        ]
-        widths = [46, None, 70, 90]
-        colour = "#f1c40f" if highlight else ("#e6edf3" if rank <= 3 else "#8b949e")
-        weight = "bold" if highlight or rank <= 3 else "normal"
-
-        for col, (text, width) in enumerate(zip(cells, widths)):
-            lbl = QLabel(text)
-            if width:
-                lbl.setFixedWidth(width)
-            if col == 2:
-                lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            style = (f"font-size: 14px; color: {colour}; font-weight: {weight};"
-                     "padding: 6px 8px;")
-            if highlight:
-                if col == 0:
-                    style += ("background-color: #2b2109; border-top-left-radius: 6px;"
-                              "border-bottom-left-radius: 6px;")
-                elif col == len(cells) - 1:
-                    style += ("background-color: #2b2109; border-top-right-radius: 6px;"
-                              "border-bottom-right-radius: 6px;")
-                else:
-                    style += "background-color: #2b2109;"
-            lbl.setStyleSheet(style)
-            grid.addWidget(lbl, row, col)
+        add_board_row(grid, row, rank, entry, highlight)
 
     def _populate_gameover(self):
         entry = self.current_entry or {}
@@ -3629,6 +3671,149 @@ class TelloControllerApp(QMainWindow):
             try: self.tello.end()
             except: pass
         event.accept()
+
+class FullscreenResultDialog(QDialog):
+    """Run result, shown over the fullscreen simulator.
+
+    In fullscreen the simulator is its own frameless window, so navigating the
+    stacked widget underneath just hid the result behind it — the player was
+    left staring at a frozen scene with no way forward. This covers the same
+    screen instead, and carries the leaderboard inline so checking it does not
+    force anyone out of fullscreen either.
+    """
+
+    def __init__(self, entry, rank, total, entries, parent=None):
+        super().__init__(parent)
+        self.choice = "exit"          # what Esc / closing means
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setModal(True)
+        self.setStyleSheet("QDialog { background-color: rgba(2, 5, 10, 242); }")
+
+        outer = QVBoxLayout(self)
+        outer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self._build_result(entry, rank, total, entries))
+        self.stack.addWidget(self._build_board(entry, entries))
+        outer.addWidget(self.stack)
+
+    # ── Result ───────────────────────────────────────────────────────────────
+    def _build_result(self, entry, rank, total, entries):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setSpacing(10)
+        box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        title = QLabel(t("game.over_title"))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 30px; font-weight: bold; color: #e6edf3;")
+        box.addWidget(title)
+
+        score = QLabel(str(entry.get("score", 0)))
+        score.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        score.setStyleSheet("font-size: 96px; font-weight: bold; color: #f1c40f;")
+        box.addWidget(score)
+
+        detail = QLabel(t("game.final_detail", name=entry.get("name", ""),
+                          coins=entry.get("coins", 0), seconds=RUN_SECONDS))
+        detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        detail.setStyleSheet("font-size: 15px; color: #8b949e;")
+        box.addWidget(detail)
+
+        clock = QLabel(t("game.finished_at",
+                         time=time.strftime("%H:%M:%S",
+                                            time.localtime(entry.get("time", time.time())))))
+        clock.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        clock.setStyleSheet("font-size: 13px; color: #6e7681;")
+        box.addWidget(clock)
+
+        if rank == 1 and total > 1:
+            rank_text, rank_colour = t("game.rank_first"), "#f1c40f"
+        else:
+            rank_text, rank_colour = t("game.rank", rank=rank, total=total), "#58a6ff"
+        rank_lbl = QLabel(rank_text)
+        rank_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        rank_lbl.setStyleSheet(
+            f"font-size: 22px; font-weight: bold; color: {rank_colour}; padding: 6px;")
+        box.addWidget(rank_lbl)
+
+        podium = QWidget()
+        podium.setFixedWidth(430)
+        grid = QGridLayout(podium)
+        grid.setSpacing(4)
+        for i, e in enumerate(entries[:3]):
+            add_board_row(grid, i, i + 1, e, e is entry)
+        # Finished outside the podium: pin their own line under it, or the
+        # screen shows three strangers and nothing about the run just played.
+        if rank > 3:
+            gap = QLabel("⋯")
+            gap.setStyleSheet("color: #6e7681; padding: 2px 8px;")
+            grid.addWidget(gap, 3, 0)
+            add_board_row(grid, 4, rank, entry, True)
+        box.addWidget(podium, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        row = QHBoxLayout()
+        again = QPushButton(t("game.try_again"))
+        again.setObjectName("primaryBtn")
+        again.setMinimumWidth(180)
+        again.clicked.connect(lambda: self._pick("again"))
+
+        board = QPushButton(t("game.show_leaderboard"))
+        board.setMinimumWidth(180)
+        board.clicked.connect(lambda: self.stack.setCurrentIndex(1))
+
+        finish = QPushButton(t("game.finish"))
+        finish.setMinimumWidth(180)
+        finish.clicked.connect(lambda: self._pick("finish"))
+
+        row.addStretch(); row.addWidget(again); row.addWidget(board)
+        row.addWidget(finish); row.addStretch()
+        box.addLayout(row)
+
+        hint = QLabel(t("game.fullscreen_hint"))
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint.setStyleSheet("font-size: 11px; color: #6e7681; padding-top: 6px;")
+        box.addWidget(hint)
+        return page
+
+    # ── Leaderboard ──────────────────────────────────────────────────────────
+    def _build_board(self, entry, entries):
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setSpacing(10)
+        box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        title = QLabel(t("game.leaderboard_title"))
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 26px; font-weight: bold; color: #e6edf3;")
+        box.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFixedSize(500, 420)
+        scroll.setStyleSheet(
+            "QScrollArea { border: 1px solid #30363d; border-radius: 10px;"
+            " background-color: #0b0f15; }")
+        holder = QWidget()
+        grid = QGridLayout(holder)
+        grid.setSpacing(4)
+        grid.setContentsMargins(14, 14, 14, 14)
+        grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        for i, e in enumerate(entries[:30]):
+            add_board_row(grid, i, i + 1, e, e is entry)
+        scroll.setWidget(holder)
+        box.addWidget(scroll, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        back = QPushButton(t("game.back"))
+        back.setMinimumWidth(180)
+        back.clicked.connect(lambda: self.stack.setCurrentIndex(0))
+        box.addWidget(back, alignment=Qt.AlignmentFlag.AlignCenter)
+        return page
+
+    def _pick(self, choice: str):
+        self.choice = choice
+        self.accept()
+
 
 class ConfirmDialog(QDialog):
     """Yes/no for a destructive step. Cancel is the default; confirm is red."""

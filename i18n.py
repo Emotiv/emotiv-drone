@@ -270,6 +270,8 @@ I18N = {
 
         "game.over_title": "Time!",
         "game.final_detail": "{name} · {coins} rings in {seconds} seconds",
+        "game.finished_at": "Finished at {time}",
+        "game.fullscreen_hint": "Try Again keeps you in fullscreen · Esc leaves it",
         "game.rank": "Position {rank} of {total}",
         "game.rank_first": "🥇 New best score!",
         "game.podium": "Top scores",
@@ -656,6 +658,8 @@ I18N = {
 
         "game.over_title": "时间到！",
         "game.final_detail": "{name} · {seconds} 秒内收集 {coins} 个圆环",
+        "game.finished_at": "结束于 {time}",
+        "game.fullscreen_hint": "「再来一次」会保持全屏 · 按 Esc 退出全屏",
         "game.rank": "第 {rank} 名，共 {total} 名",
         "game.rank_first": "🥇 新的最高分！",
         "game.podium": "最高分",
