@@ -3137,6 +3137,15 @@ class TelloControllerApp(QMainWindow):
         self.drone_client.accept_training(action)
         
     def _on_training_reject(self, action: str):
+        """Discard the take and immediately record another one.
+
+        'reject' only tells Cortex to throw the sample away — it does not start
+        a new round. Nothing here restarted it either, so the screen sat on
+        "Retrying training..." forever. The restart is driven locally rather
+        than off the MC_Rejected event, so a reject that Cortex never
+        acknowledges (rejecting after a failed take, for instance) cannot wedge
+        the screen again.
+        """
         if action == "neutral":
             self.neutral_accept_btn.hide()
             self.neutral_reject_btn.hide()
@@ -3145,7 +3154,13 @@ class TelloControllerApp(QMainWindow):
             self.push_accept_btn.hide()
             self.push_reject_btn.hide()
             bind(self.push_status_lbl, "train.retrying")
+        if self.push_anim_timer.isActive():
+            self.push_anim_timer.stop()
+
         self.drone_client.reject_training(action)
+        # Let the reject land before asking for a new take. The 3-second
+        # countdown inside _begin_training_sequence adds more slack on top.
+        QTimer.singleShot(700, lambda: self._begin_training_sequence(action))
         
     def _on_training_update(self, event: str):
         idx = self.stacked_widget.currentIndex()
@@ -3163,7 +3178,11 @@ class TelloControllerApp(QMainWindow):
             return
 
         event_lower = event.lower()
-        if "started" in event_lower:
+        if "rejected" in event_lower or "erased" in event_lower:
+            # Acknowledged only. _on_training_reject already queued the retake;
+            # restarting here as well would run two countdowns at once.
+            self.log(t("log.training_rejected", action=action))
+        elif "started" in event_lower:
             pass # Handled by local recording timer
         elif "succeeded" in event_lower:
             if hasattr(self, "recording_timer") and self.recording_timer.isActive():
