@@ -27,6 +27,7 @@ import math
 import random
 from config_manager import ConfigManager
 from app_paths import resource_path
+import leaderboard
 import i18n
 from i18n import t, bind
 
@@ -43,6 +44,12 @@ PAGE_TEST = 6
 PAGE_DRONE = 7
 PAGE_DASHBOARD = 8
 PAGE_BRAINMAP = 9
+PAGE_GAMEOVER = 10
+PAGE_LEADERBOARD = 11
+
+# Length of one competitive ring run. Long enough to recover from a bad start,
+# short enough that a queue of people waiting their turn keeps moving.
+RUN_SECONDS = 60
 
 
 class EmittingStream(QObject):
@@ -289,8 +296,11 @@ class DroneSimulatorWidget(QWidget):
         self.coin_counter = 1
         self.particles = []
         self.combo_flash = 0.0
-        if self.mode == self.GAME:
-            self.spawn_coin()
+
+        # A timed run, not free flight. Outside a run the drone still flies —
+        # that is the practice mode — but no rings spawn and nothing scores.
+        self.run_active = False
+        self.time_left = 0.0
 
         # Which action the user is recording right now; drives the on-screen cue.
         self.training_cue = None
@@ -340,6 +350,30 @@ class DroneSimulatorWidget(QWidget):
     def set_training_cue(self, cue):
         """'neutral', 'push' or None — shown as a hint over the scene."""
         self.training_cue = cue
+        self.update()
+
+    def start_run(self, seconds: int):
+        """Begin a timed run: clean slate, first ring in the air."""
+        self.score = 0
+        self.coins = []
+        self.coin_counter = 1
+        self.particles = []
+        self.combo_flash = 0.0
+        self.run_active = True
+        self.time_left = float(seconds)
+        self.reset_flight()
+        self.spawn_coin()
+        self.update()
+
+    def end_run(self):
+        """Stop scoring and clear the field, leaving the final score readable."""
+        self.run_active = False
+        self.time_left = 0.0
+        self.coins = []
+        self.update()
+
+    def set_time_left(self, seconds: float):
+        self.time_left = max(0.0, float(seconds))
         self.update()
 
     def reset_flight(self):
@@ -404,7 +438,7 @@ class DroneSimulatorWidget(QWidget):
         self.drone_y = max(5, min(1000, self.drone_y))
 
         # Coin collection logic — game mode only.
-        if self.mode == self.GAME:
+        if self.mode == self.GAME and self.run_active:
             collected = []
             for coin in self.coins:
                 cx, cy, cz, rot, num = coin
@@ -479,7 +513,7 @@ class DroneSimulatorWidget(QWidget):
 
         self._paint_sky(painter, horizon_y)
         self._paint_ground(painter, horizon_y)
-        if self.mode == self.GAME:
+        if self.mode == self.GAME and self.run_active:
             self._paint_coins(painter)
         self._paint_particles(painter)
         self._paint_drone(painter)
@@ -753,6 +787,7 @@ class DroneSimulatorWidget(QWidget):
             painter.drawText(28, 66, t("sim.readout",
                                        alt=int(self.drone_y),
                                        spd=f"{self.speed:.1f}"))
+            self._paint_timer(painter)
         else:
             # Training: altitude only, small and out of the way.
             font.setPointSize(10)
@@ -766,6 +801,51 @@ class DroneSimulatorWidget(QWidget):
             painter.setFont(font)
             painter.setPen(QColor(255, 255, 255, 150))
             painter.drawText(self.width() - 210, 30, t("sim.esc_hint"))
+
+    def _paint_timer(self, painter):
+        """Countdown clock, top-centre. Turns red and pulses in the last 10s."""
+        if not self.run_active:
+            painter.setPen(QColor(139, 148, 158, 190))
+            font = painter.font()
+            font.setPointSize(11)
+            font.setBold(True)
+            painter.setFont(font)
+            text = t("game.idle_hint")
+            metrics = painter.fontMetrics()
+            painter.drawText(int(self.width() / 2 - metrics.horizontalAdvance(text) / 2),
+                             self.height() - 22, text)
+            return
+
+        seconds = int(math.ceil(self.time_left))
+        urgent = seconds <= 10
+        if urgent:
+            # Pulse on the beat of the seconds, so the panic is legible.
+            pulse = abs(math.sin(self._idle_bob * 3.0))
+            colour = QColor(248, 81, 73)
+            ring = QColor(248, 81, 73, int(120 + 135 * pulse))
+        else:
+            colour = QColor("#e6edf3")
+            ring = QColor(88, 166, 255, 110)
+
+        text = t("game.timer", seconds=seconds)
+        font = painter.font()
+        font.setPointSize(20 if not urgent else 23)
+        font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        tw = metrics.horizontalAdvance(text)
+        cx = self.width() / 2
+        rect = QRectF(cx - tw / 2 - 20, 14, tw + 40, 46)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(13, 17, 23, 185))
+        painter.drawRoundedRect(rect, 23, 23)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(ring, 2))
+        painter.drawRoundedRect(rect, 23, 23)
+
+        painter.setPen(colour)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
 
     def _paint_mental_command(self, painter):
         if not (self.main_app and self.main_app.drone_client
@@ -1210,6 +1290,15 @@ class TelloControllerApp(QMainWindow):
         self.mc_config_signal.connect(self._on_mc_config_update)
         self.brainmap_signal.connect(self._on_brain_map)
 
+        # Ring-run state. Declared before init_ui because the page builders
+        # connect buttons that read it.
+        self.run_timer = QTimer(self)
+        self.run_timer.timeout.connect(self._on_run_tick)
+        self._run_deadline = 0.0
+        self.current_player = ""
+        self.current_entry = None
+        self._board_return_page = PAGE_TEST
+
         self.stdout_stream = EmittingStream()
         self.stdout_stream.textWritten.connect(self.log_signal.emit)
         self.original_stdout = sys.stdout
@@ -1248,6 +1337,7 @@ class TelloControllerApp(QMainWindow):
         main_layout.addLayout(header)
 
         self.stacked_widget = QStackedWidget()
+        self.stacked_widget.currentChanged.connect(self._on_page_changed)
         main_layout.addWidget(self.stacked_widget)
 
         self.setup_page_auth()
@@ -1260,9 +1350,25 @@ class TelloControllerApp(QMainWindow):
         self.setup_page_2()
         self.setup_page_3()
         self.setup_page_brainmap()
+        self.setup_page_gameover()
+        self.setup_page_leaderboard()
 
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
+
+    def _on_page_changed(self, index: int):
+        """Leaving the test screen mid-run abandons the run.
+
+        Otherwise the timer would keep counting somewhere else and yank the user
+        onto a results screen for a round they walked away from. _finish_ring_run
+        stops the timer before it navigates, so a normal finish never lands here.
+        """
+        if index != PAGE_TEST and self.run_timer.isActive():
+            self.run_timer.stop()
+            self.drone_sim.end_run()
+            self.start_run_btn.setEnabled(True)
+            bind(self.start_run_btn, "game.start")
+            self.log(t("log.run_abandoned"))
 
     def _on_language_changed(self, index: int):
         code = self.lang_combo.itemData(index)
@@ -1460,7 +1566,11 @@ class TelloControllerApp(QMainWindow):
         self.p0_next_btn.setEnabled(False)
         self.p0_next_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_TEST))
         
+        board_btn = bind(QPushButton(), "game.show_leaderboard")
+        board_btn.clicked.connect(lambda: self._show_leaderboard(PAGE_PROFILE))
+
         btn_row.addWidget(back_btn)
+        btn_row.addWidget(board_btn)
         btn_row.addWidget(self.p0_next_btn)
         c_layout.addLayout(btn_row)
 
@@ -1732,6 +1842,29 @@ class TelloControllerApp(QMainWindow):
         subtitle.setObjectName("subtitleLabel"); subtitle.setWordWrap(True)
         c_layout.addWidget(title); c_layout.addWidget(subtitle)
 
+        # ── Ring run: the competitive bit ────────────────────────────────────
+        game_group = QGroupBox()
+        bind(game_group, "game.group", "setTitle", seconds=RUN_SECONDS)
+        game_row = QHBoxLayout(game_group)
+
+        self.player_name_input = QLineEdit()
+        bind(self.player_name_input, "game.name_placeholder", "setPlaceholderText")
+        self.player_name_input.setMaxLength(24)
+        self.player_name_input.returnPressed.connect(self._start_ring_run)
+        game_row.addWidget(self.player_name_input, stretch=1)
+
+        self.start_run_btn = bind(QPushButton(), "game.start")
+        self.start_run_btn.setObjectName("primaryBtn")
+        self.start_run_btn.clicked.connect(self._start_ring_run)
+        game_row.addWidget(self.start_run_btn)
+
+        leaderboard_btn = bind(QPushButton(), "game.show_leaderboard")
+        leaderboard_btn.clicked.connect(
+            lambda: self._show_leaderboard(PAGE_TEST))
+        game_row.addWidget(leaderboard_btn)
+
+        c_layout.addWidget(game_group)
+
         top_split = QHBoxLayout()
 
         state_group = QGroupBox()
@@ -1936,6 +2069,273 @@ class TelloControllerApp(QMainWindow):
 
         root.addLayout(right, stretch=1)
         self.stacked_widget.addWidget(page)
+
+    # ──────────────────────────────────────────────
+    # Ring run: timed game, results, leaderboard
+    # ──────────────────────────────────────────────
+    def setup_page_gameover(self):
+        """Where a run lands: your score, your rank, and what to do next."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QWidget(); container.setFixedWidth(640)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(14)
+
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "game.over_title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        c_layout.addWidget(title)
+
+        self.final_score_lbl = QLabel("0")
+        self.final_score_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.final_score_lbl.setStyleSheet(
+            "font-size: 64px; font-weight: bold; color: #f1c40f;")
+        c_layout.addWidget(self.final_score_lbl)
+
+        self.final_detail_lbl = QLabel()
+        self.final_detail_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.final_detail_lbl.setStyleSheet("font-size: 14px; color: #8b949e;")
+        c_layout.addWidget(self.final_detail_lbl)
+
+        self.rank_lbl = QLabel()
+        self.rank_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.rank_lbl.setStyleSheet(
+            "font-size: 20px; font-weight: bold; color: #58a6ff; padding: 4px;")
+        c_layout.addWidget(self.rank_lbl)
+
+        podium_group = QGroupBox()
+        bind(podium_group, "game.podium", "setTitle")
+        self.podium_grid = QGridLayout(podium_group)
+        self.podium_grid.setSpacing(6)
+        c_layout.addWidget(podium_group)
+
+        btn_row = QHBoxLayout()
+        self.try_again_btn = bind(QPushButton(), "game.try_again")
+        self.try_again_btn.setObjectName("primaryBtn")
+        self.try_again_btn.clicked.connect(self._try_again)
+
+        full_board_btn = bind(QPushButton(), "game.show_leaderboard")
+        full_board_btn.clicked.connect(lambda: self._show_leaderboard(PAGE_GAMEOVER))
+
+        finish_btn = bind(QPushButton(), "game.finish")
+        finish_btn.clicked.connect(self._finish_session)
+
+        btn_row.addWidget(self.try_again_btn)
+        btn_row.addWidget(full_board_btn)
+        btn_row.addWidget(finish_btn)
+        c_layout.addLayout(btn_row)
+
+        layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    def setup_page_leaderboard(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        container = QWidget(); container.setFixedWidth(660)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(12)
+
+        title = QLabel(); title.setObjectName("titleLabel")
+        bind(title, "game.leaderboard_title")
+        c_layout.addWidget(title)
+
+        subtitle = bind(QLabel(), "game.leaderboard_subtitle")
+        subtitle.setObjectName("subtitleLabel"); subtitle.setWordWrap(True)
+        c_layout.addWidget(subtitle)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumHeight(360)
+        scroll.setStyleSheet(
+            "QScrollArea { border: 1px solid #30363d; border-radius: 10px;"
+            " background-color: #0b0f15; }")
+        holder = QWidget()
+        self.board_grid = QGridLayout(holder)
+        self.board_grid.setSpacing(6)
+        self.board_grid.setContentsMargins(14, 14, 14, 14)
+        self.board_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        scroll.setWidget(holder)
+        c_layout.addWidget(scroll)
+
+        # When the player is not in the visible top slice, pin their row here so
+        # "where did I come?" never needs scrolling.
+        self.board_you_lbl = QLabel()
+        self.board_you_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.board_you_lbl.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #58a6ff;"
+            "background-color: #131c2b; border: 1px solid #1f6feb;"
+            "border-radius: 8px; padding: 8px;")
+        c_layout.addWidget(self.board_you_lbl)
+
+        back_btn = bind(QPushButton(), "game.back")
+        back_btn.clicked.connect(
+            lambda: self.stacked_widget.setCurrentIndex(self._board_return_page))
+        c_layout.addWidget(back_btn)
+
+        layout.addWidget(container)
+        self.stacked_widget.addWidget(page)
+
+    # ── Run lifecycle ────────────────────────────────────────────────────────
+    def _start_ring_run(self):
+        if self.run_timer.isActive():
+            return
+        name = self.player_name_input.text().strip()
+        if not name:
+            # Fall back to the trained profile — in a demo queue that is almost
+            # always the person actually sitting in the chair.
+            name = self.config.get("profile_name", "") or t("game.anonymous")
+            self.player_name_input.setText(name)
+        self.current_player = name
+
+        self.drone_sim.start_run(RUN_SECONDS)
+        self._run_deadline = time.monotonic() + RUN_SECONDS
+        self.run_timer.start(100)
+        self.start_run_btn.setEnabled(False)
+        bind(self.start_run_btn, "game.running")
+        self.log(t("log.run_started", name=name, seconds=RUN_SECONDS))
+
+    def _on_run_tick(self):
+        remaining = self._run_deadline - time.monotonic()
+        self.drone_sim.set_time_left(remaining)
+        if remaining <= 0:
+            self._finish_ring_run()
+
+    def _finish_ring_run(self):
+        self.run_timer.stop()
+        score = self.drone_sim.score
+        coins = score // 10
+        self.drone_sim.end_run()
+        self.start_run_btn.setEnabled(True)
+        bind(self.start_run_btn, "game.start")
+
+        self.current_entry = leaderboard.add(
+            self.current_player, score, coins,
+            profile=self.config.get("profile_name", ""))
+        self.log(t("log.run_finished", name=self.current_player, score=score))
+
+        self._populate_gameover()
+        self.stacked_widget.setCurrentIndex(PAGE_GAMEOVER)
+
+    def _try_again(self):
+        self.stacked_widget.setCurrentIndex(PAGE_TEST)
+        self._start_ring_run()
+
+    def _finish_session(self):
+        """Hand the headset to the next person: back to profile selection."""
+        self.current_entry = None
+        self.player_name_input.clear()
+        self.drone_sim.end_run()
+        self.drone_sim.reset_flight()
+        self.stacked_widget.setCurrentIndex(PAGE_PROFILE)
+        self.log(t("log.session_handoff"))
+
+    # ── Result rendering ─────────────────────────────────────────────────────
+    def _clear_grid(self, grid):
+        while grid.count():
+            item = grid.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                i18n.unbind(w)
+                w.deleteLater()
+
+    def _add_board_row(self, grid, row, rank, entry, highlight):
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+        cells = [
+            medals.get(rank, f"{rank}."),
+            entry.get("name", "?"),
+            str(entry.get("score", 0)),
+            t("game.coins_short", coins=entry.get("coins", 0)),
+        ]
+        widths = [46, None, 70, 90]
+        colour = "#f1c40f" if highlight else ("#e6edf3" if rank <= 3 else "#8b949e")
+        weight = "bold" if highlight or rank <= 3 else "normal"
+
+        for col, (text, width) in enumerate(zip(cells, widths)):
+            lbl = QLabel(text)
+            if width:
+                lbl.setFixedWidth(width)
+            if col == 2:
+                lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            style = (f"font-size: 14px; color: {colour}; font-weight: {weight};"
+                     "padding: 6px 8px;")
+            if highlight:
+                if col == 0:
+                    style += ("background-color: #2b2109; border-top-left-radius: 6px;"
+                              "border-bottom-left-radius: 6px;")
+                elif col == len(cells) - 1:
+                    style += ("background-color: #2b2109; border-top-right-radius: 6px;"
+                              "border-bottom-right-radius: 6px;")
+                else:
+                    style += "background-color: #2b2109;"
+            lbl.setStyleSheet(style)
+            grid.addWidget(lbl, row, col)
+
+    def _populate_gameover(self):
+        entry = self.current_entry or {}
+        score = entry.get("score", 0)
+        self.final_score_lbl.setText(str(score))
+        self.final_detail_lbl.setText(t(
+            "game.final_detail",
+            name=entry.get("name", ""),
+            coins=entry.get("coins", 0),
+            seconds=RUN_SECONDS,
+        ))
+
+        entries = leaderboard.load()
+        rank = leaderboard.rank_of(entry, entries)
+        total = len(entries)
+        if rank == 1 and total > 1:
+            self.rank_lbl.setText(t("game.rank_first"))
+            self.rank_lbl.setStyleSheet(
+                "font-size: 20px; font-weight: bold; color: #f1c40f; padding: 4px;")
+        else:
+            self.rank_lbl.setText(t("game.rank", rank=rank, total=total))
+            self.rank_lbl.setStyleSheet(
+                "font-size: 20px; font-weight: bold; color: #58a6ff; padding: 4px;")
+
+        self._clear_grid(self.podium_grid)
+        for i, e in enumerate(entries[:5]):
+            self._add_board_row(self.podium_grid, i, i + 1, e, e is entry)
+        # Player finished outside the top 5 — show their row underneath so the
+        # screen always answers "how did I do?" without another click.
+        if rank > 5:
+            gap = QLabel("⋯")
+            gap.setStyleSheet("color: #6e7681; padding: 2px 8px;")
+            self.podium_grid.addWidget(gap, 5, 0)
+            self._add_board_row(self.podium_grid, 6, rank, entry, True)
+
+    def _show_leaderboard(self, return_page: int):
+        self._board_return_page = return_page
+        entries = leaderboard.load()
+        self._clear_grid(self.board_grid)
+
+        if not entries:
+            empty = bind(QLabel(), "game.board_empty")
+            empty.setStyleSheet("color: #8b949e; font-size: 14px; padding: 20px;")
+            self.board_grid.addWidget(empty, 0, 0, 1, 4)
+            self.board_you_lbl.hide()
+            self.stacked_widget.setCurrentIndex(PAGE_LEADERBOARD)
+            return
+
+        shown = entries[:20]
+        rank = leaderboard.rank_of(self.current_entry, entries) if self.current_entry else 0
+        for i, e in enumerate(shown):
+            self._add_board_row(self.board_grid, i, i + 1, e,
+                                self.current_entry is not None and e is self.current_entry)
+
+        # Always pin the player's own line, whether or not their row is visible
+        # above — the question this screen has to answer is "where did I come?".
+        if rank:
+            self.board_you_lbl.setText(t(
+                "game.your_position", rank=rank, total=len(entries),
+                score=self.current_entry.get("score", 0)))
+            self.board_you_lbl.show()
+        else:
+            self.board_you_lbl.hide()
+
+        self.stacked_widget.setCurrentIndex(PAGE_LEADERBOARD)
 
     def setup_page_brainmap(self):
         """Training result: the brain map, a verdict, and a way to redo it."""

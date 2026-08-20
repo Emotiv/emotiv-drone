@@ -193,6 +193,37 @@ I18N = {
         "cue.neutral": "Relax — let the drone hover",
         "cue.push": "Push the drone forward",
 
+        # ── Ring run / leaderboard ───────────────────────────────────────────
+        "game.group": "🏁 Ring Run — {seconds} seconds",
+        "game.name_placeholder": "Your name",
+        "game.start": "▶ Start Run",
+        "game.running": "Run in progress…",
+        "game.show_leaderboard": "🏆 Show Leaderboard",
+        "game.timer": "{seconds}s",
+        "game.idle_hint": "Press Start Run to begin a timed round",
+        "game.anonymous": "Player",
+
+        "game.over_title": "Time!",
+        "game.final_detail": "{name} · {coins} rings in {seconds} seconds",
+        "game.rank": "Position {rank} of {total}",
+        "game.rank_first": "🥇 New best score!",
+        "game.podium": "Top scores",
+        "game.try_again": "🔄 Try Again",
+        "game.finish": "Finish — next player",
+        "game.back": "⬅ Back",
+
+        "game.leaderboard_title": "Leaderboard",
+        "game.leaderboard_subtitle":
+            "Every run recorded on this computer, best first.",
+        "game.board_empty": "No runs yet. Be the first.",
+        "game.your_position": "You: position {rank} of {total} · {score} points",
+        "game.coins_short": "{coins} rings",
+
+        "log.run_started": "Ring run started for {name} ({seconds}s).",
+        "log.run_finished": "Ring run finished: {name} scored {score}.",
+        "log.run_abandoned": "Ring run abandoned — left the test screen.",
+        "log.session_handoff": "Session finished. Ready for the next player.",
+
         # ── Trained action names ─────────────────────────────────────────────
         "action.neutral": "Neutral",
         "action.push": "Push",
@@ -496,6 +527,36 @@ I18N = {
 
         "cue.neutral": "放松 — 让无人机悬停",
         "cue.push": "用意念把无人机向前推",
+
+        # ── Ring run / leaderboard ───────────────────────────────────────────
+        "game.group": "🏁 冲环挑战 — {seconds} 秒",
+        "game.name_placeholder": "你的名字",
+        "game.start": "▶ 开始挑战",
+        "game.running": "挑战进行中…",
+        "game.show_leaderboard": "🏆 查看排行榜",
+        "game.timer": "{seconds} 秒",
+        "game.idle_hint": "点击「开始挑战」进入计时回合",
+        "game.anonymous": "玩家",
+
+        "game.over_title": "时间到！",
+        "game.final_detail": "{name} · {seconds} 秒内收集 {coins} 个圆环",
+        "game.rank": "第 {rank} 名，共 {total} 名",
+        "game.rank_first": "🥇 新的最高分！",
+        "game.podium": "最高分",
+        "game.try_again": "🔄 再来一次",
+        "game.finish": "结束 — 换下一位玩家",
+        "game.back": "⬅ 返回",
+
+        "game.leaderboard_title": "排行榜",
+        "game.leaderboard_subtitle": "本机记录的所有成绩，从高到低排列。",
+        "game.board_empty": "还没有成绩，来做第一个吧。",
+        "game.your_position": "你：第 {rank} 名，共 {total} 名 · {score} 分",
+        "game.coins_short": "{coins} 个环",
+
+        "log.run_started": "{name} 的冲环挑战已开始（{seconds} 秒）。",
+        "log.run_finished": "冲环挑战结束：{name} 得分 {score}。",
+        "log.run_abandoned": "冲环挑战已放弃 — 离开了测试页面。",
+        "log.session_handoff": "本次体验结束，可以换下一位玩家了。",
 
         # ── Trained action names ─────────────────────────────────────────────
         "action.neutral": "中性",

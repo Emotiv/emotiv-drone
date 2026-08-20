@@ -13,6 +13,7 @@ Control a DJI Tello drone using only your mind and head movements. This project 
 - **Mental Command Integration**: Map trained thoughts (Push, Pull, Lift, etc.) to critical flight actions like **Take Off**, **Land**, or **Emergency Stop**.
 - **Real-time Telemetry & Video**: The dashboard provides a live H.264 video feed from the drone and displays real-time battery status, altitude, temperature, and RC command logs.
 - **Premium Dark Dashboard**: A custom-built PyQt6 interface designed for professional BCI experimentation.
+- **60-second Ring Run**: A timed score attack in the simulator — collect glowing rings against the clock, then see where you landed on a local leaderboard. Built for passing one headset around a room: finish a run, hand over, next person trains and plays.
 - **English and 中文**: Switch language from the header at any time — the whole interface follows immediately, no restart. Your choice is remembered in `config.json`.
 - **Simulation Mode**: Test your BCI mapping and head tracking precision in a safe software-only environment before taking flight.
 
@@ -103,6 +104,19 @@ The easiest way to start is via the included shell script:
 ./run.sh
 ```
 
+### Ring Run and the leaderboard
+
+On the **Test Virtual Flight Controls** screen, type a name and press **Start
+Run**. Rings spawn ahead of the drone for 60 seconds; each one is 10 points, and
+the clock turns red for the last ten seconds. When time is up you get your score,
+your position, and the top five, with **Try Again**, **Show Leaderboard**, or
+**Finish — next player** (which returns to profile selection so the next person
+can train their own profile).
+
+Scores live in `leaderboard.json` beside the other settings — one table per
+computer, no account and nothing uploaded. Leaving the test screen mid-run
+abandons that run rather than recording it.
+
 ### Language
 Pick **English** or **中文** from the dropdown in the top-right corner. The change
 applies live, and the app reopens in the same language next time.
@@ -140,6 +154,7 @@ on the HUD — they are protocol identifiers, not prose.
 ├── drone_adapter.py    # BCI to Tello command translator
 ├── drone_controller.py # Core background engine
 ├── i18n.py             # English / 中文 translation table
+├── leaderboard.py      # Local high scores for the Ring Run
 ├── ui.py               # Graphical Dashboard
 ├── run.sh              # Entry point script
 └── requirements.txt    # Project dependencies
@@ -170,7 +185,7 @@ Pushing a `v*` tag also attaches both to a GitHub release.
 EMOTIV Launcher must be running before you start the app, and it will ask you to
 approve access on first launch. Settings are stored per user, not next to the
 app: `~/Library/Application Support/EmotivDrone` on macOS,
-`%APPDATA%\EmotivDrone` on Windows.
+`%APPDATA%\EmotivDrone` on Windows — including the Ring Run leaderboard.
 
 ### Building locally
 
