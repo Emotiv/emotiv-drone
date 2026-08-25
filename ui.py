@@ -4912,6 +4912,24 @@ class TelloControllerApp(QMainWindow):
 
     def closeEvent(self, event):
         applog.write("window closed, shutting down")
+
+        # Pressing Finish deletes the player's profile; closing the window did
+        # not, so every session that ended by clicking the X left a trained
+        # profile behind on the Cortex account. Same setupProfile/delete call,
+        # just on the way out.
+        profile = (self.config.get("profile_name") or "").strip()
+        if profile and self.drone_client:
+            applog.write(f"deleting profile '{profile}' on exit")
+            try:
+                self.drone_client.delete_profile(profile)
+                # delete_profile only queues the sends; give the socket a
+                # moment to flush them before the process goes away.
+                time.sleep(0.8)
+            except Exception as e:
+                applog.exception("profile delete on exit", e)
+            self.config["profile_name"] = ""
+            ConfigManager.save_config(self.config)
+
         sys.stdout = self.original_stdout
         if self.drone_client:
             self.drone_client.running = False
