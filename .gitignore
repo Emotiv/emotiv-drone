@@ -11,3 +11,7 @@ build/
 dist/
 *.dmg
 *.zip
+
+# Diagnostic log written next to the source when running from a checkout
+emotiv-drone.log
+emotiv-drone.previous.log

@@ -111,6 +111,146 @@ still in the tree, but its entry points are hidden while the simulator is the
 product. Set `SHOW_REAL_DRONE = True` in `ui.py` to bring it back; no code was
 removed and the page indices are unchanged.
 
+The flow a player walks is: **pick a headset → check the sensors → train → fly**.
+Three flags at the top of `ui.py` keep it that short, and each can be flipped
+back on without touching anything else:
+
+| Flag | Off means |
+| :--- | :--- |
+| `SHOW_AUTH_PAGE` | The credentials form is not a step. `cortex.py` carries the Cortex client id and secret, so it collects nothing the app uses. It is now a **Connection problem** screen, reached only on failure — see below. |
+| `SHOW_MOTION_TUNING` | No ⚙ Configurations button, which is where head-tilt and deadzone tuning now lives. **🎯 Recenter** is the one motion control on the page. Values still come from `config.json`. |
+| `SHOW_PROFILE_LIST` | No list of past profiles; each player types their own name. |
+
+### The log file
+
+Everything the app prints — the in-window log pane, the raw Cortex traffic, the
+status changes — is mirrored to a file, so a problem can be diagnosed after the
+window has been closed and from a packaged build with no console attached:
+
+- **From a checkout:** `emotiv-drone.log` beside the source (git-ignored).
+- **Installed:** `%APPDATA%\EmotivDrone\emotiv-drone.log` on Windows,
+  `~/Library/Application Support/EmotivDrone/emotiv-drone.log` on macOS.
+
+The path is printed at startup and shown on the **Connection problem** screen,
+where someone about to report a fault will be looking. It rolls over at 4 MB
+keeping one previous file, and `sys.excepthook` is redirected into it so an
+unhandled exception is recorded rather than vanishing into a missing console.
+
+Lines the app writes itself follow the UI language; raw Cortex output is
+English either way.
+
+### When the headset drops out
+
+A headset going quiet mid-session used to look like the drone simply refusing
+to respond — nothing detected it. Cortex warning 103 now surfaces as a
+full-window notice, and the app spends **30 seconds** trying to get the device
+back before giving up.
+
+The Cortex *session* is deliberately left alone during that window. Reconnecting
+the device is enough for the existing subscriptions to resume, so the loaded
+profile and the run in progress both survive a brief dropout — the run clock
+pauses and restarts from where it stopped. Contact data arriving again is what
+counts as recovery. If the 30 seconds run out, the run is abandoned and the app
+returns to the headset list.
+
+### Getting out, and letting go of the headset
+
+The training screens carry **Start over — back to headsets**. Training is the
+longest part of the flow and the easiest to get stuck in — a bad take, the wrong
+headset, the wrong person sitting down — and it previously had no exit at all.
+
+Connecting to a different headset releases the current one first. Cortex
+otherwise leaves the previous device connected and the new session still bound
+to it.
+
+### Picking a headset
+
+The devices in range are shown as a **list**, not a dropdown: with several
+headsets in a room, how many there are and what state each is in is the useful
+information, and a collapsed combo hides exactly that until you click it.
+
+Each row carries the product shot for that model, the id, its state, and **its
+own Connect button** — selecting a device and then confirming were two steps for
+one decision, since nobody highlights a headset they do not intend to use.
+Double-clicking a row does the same thing. While a connection is in flight every
+row's button is disabled, because two headsets cannot come up at once.
+
+Model artwork is matched from the id prefix (`INSIGHT2-A3D208D9` → `insight.png`)
+with the longest prefix winning, so INSIGHT2 is not swallowed by INSIGHT and an
+unrecognised variant still shows its family. An unknown model just gets no
+picture.
+
+There is no connection status badge any more. It spent most of its life reading
+"BCI: Scan Finished / Not Found", which told the user nothing the list does not
+already show; connection progress goes to the log.
+
+**Refresh** never sticks. It used to disable itself on the first press and stay
+that way: the worker thread re-enabled it through `QTimer.singleShot(0, done)`,
+and a timer created on a thread with no Qt event loop never fires. Both places
+that did this now marshal back through `ui_task_signal`.
+
+### Which way is left
+
+`invert_yaw` belongs to the headset, not to the installation. It is `False` by
+default — turning your head left steers left — and only MN8 overrides it,
+because MN8 reports yaw the other way round.
+
+It had been switched on at the *top level* of `config.json`, which is not the
+same thing: every headset without an explicit profile inherits the top level, so
+tuning done for an MN8 silently inverted Insight and EPOC X as well. The default
+now lives in `DEFAULT_CONFIG` where the other motion settings are, and the
+override stays where it belongs, in `device_profiles.MN8`.
+
+### When the connection fails
+
+Selecting a headset is step one; nothing is asked before it. If the app cannot
+reach Cortex it stops waiting and shows a **Connection problem** screen, which
+leads with the two things that are actually wrong in practice:
+
+1. **EMOTIV Launcher is not running** (or is not signed in).
+2. **This application has never been approved in it.**
+
+The credentials sit below those, labelled as rarely being the problem, and the
+exact message Cortex or the socket reported is shown in an amber banner above.
+**Retry Connection** tears down the dead client and starts over.
+
+Three failure signals feed that screen, none of which existed before — the app
+used to sit on "Connecting…" indefinitely with EMOTIV Launcher closed:
+
+- `connection_failed` — the websocket errored or closed before ever
+  authorizing. A failing socket reports twice, once with the real reason and
+  once with nothing, so the first specific message is the one kept.
+- `access_right_pending` — `requestAccess` returned false. The approval banner
+  appears on the headset screen, where the user already is.
+- `access_right_rejected` — the user actively declined in EMOTIV Launcher
+  (warning code 10). Nothing retries by itself from here, so this is stated
+  plainly rather than left silent.
+
+### Branding assets
+
+Artwork lives in `assets/` and every piece is optional — a missing file means
+that chrome is not drawn, so the app runs from a clean checkout with no images
+at all.
+
+| File | Where it appears |
+| :--- | :--- |
+| `assets/logo_white.png` | The persistent header on every page at 46px, held back to 75% opacity, and again at 132px above the title on the headset screen. |
+| `assets/hero_drone.png` | Backdrop on the headset screen — centred, fitted to 88% of the page, drawn at 16% opacity. |
+
+Both must be **transparent PNGs**. The artwork is white line work, so a JPEG of
+the same image carries an opaque white background and renders as a white block
+on the dark interface. The logo is a stacked lockup — drone mark over the
+EMOTIV / BCI DRONE wordmark, about 3:2 — which is why it is given real height
+rather than being squeezed into a slim header row; below roughly 40px the
+second line stops being readable.
+
+The hero is centred rather than corner-anchored because the drone is
+left-right symmetric: bleeding one side off the edge reads as a mistake rather
+than a crop.
+
+`packaging/EmotivDrone.spec` ships the whole `assets/` directory, so the
+desktop builds carry the branding too.
+
 ### One profile per player
 
 The list of existing profiles is hidden (`SHOW_PROFILE_LIST` in `ui.py`). Each
@@ -119,11 +259,34 @@ the leaderboard name, so nobody ends up on the board twice under two spellings.
 
 ### Tuning before a run
 
-The simulator screen carries a **Sensitivity** panel: head-tilt response per
-direction, deadzone, and one slider per trained mental command. Changes apply
-live, which is the point — this is the only screen where you can see the effect.
-Mental-command values are pushed to Cortex on slider release rather than during
-the drag, since each call writes to the profile.
+This page is laid out as a game rather than as another step in a form. The
+scene fills it, and the chrome around it is arranged the way a game arranges it:
+
+- **Player name, top left**, at scoreboard size — it is the one piece of
+  identity on screen and the name that goes on the board.
+- **▶ Start Run, bottom right**, large and green, the single thing the screen is
+  asking you to do. The run length sits above it as a caption.
+- **Secondary actions, bottom left**, deliberately quiet: Back, Recenter, Reset
+  & Retrain, and the **Mental commands** sliders — one per trained command,
+  setting how hard you have to think it before it fires. Changes apply live,
+  which is the point. Values are pushed to Cortex on slider release rather than
+  during the drag, since each call writes to the profile.
+- **The controls are explained inside the scene**, not in a panel above it: the
+  overlay names your own trained command and fades once the run is properly
+  under way.
+
+Everything else that used to sit in a column beside the scene is gone: flight
+state, RC channel bars and the raw MOT/COM dump were each a readout of something
+the simulator already shows, and they cost the game two thirds of the width. The
+raw streams are still printed to the log pane. The step title, the subtitle and
+the how-to panel went the same way — three layers of preamble above the thing
+the player came for. The **Fullscreen** button is gone too; the page is the game
+now, so there is less to escape from.
+
+Head-tilt and deadzone tuning is behind `SHOW_MOTION_TUNING`. Adjusting it
+mid-demo was how a working setup got broken between players, and **🎯 Recenter**
+— which makes your current head position the new straight-ahead — covers the
+adjustment that actually helps.
 
 **♻ Reset & Retrain** erases the profile's training, including the neutral
 baseline, and sends you back through the signal check. It is there because this
@@ -131,8 +294,9 @@ is the screen where you discover the training is no good.
 
 ### Handing the headset to the next player
 
-**Finish — next player** deletes the trained profile, rescans for headsets and
-drops you on the device list. Nothing to confirm: the score already lives in
+**Finish — next player** deletes the trained profile, disconnects the headset,
+rescans and drops you on the device list. The disconnect matters: without it the
+next person sees a device still held open by the run that just ended. Nothing to confirm: the score already lives in
 `leaderboard.json` independent of Cortex, so the name stays on the board for the
 record while the training itself is binned. Landing on the device list rather
 than profile creation is deliberate — the next person may be on a different
@@ -145,7 +309,49 @@ Cortex will not modify a profile that is loaded on the headset, so both actions
 unload it first. There is no single "reset profile" call either: the reset walks
 the profile's active actions and erases them one at a time, neutral included.
 
+### The signal check
+
+Contact quality is drawn on a head seen from above, nose at the top, with each
+sensor at its real place in the international 10–20 system — so a bad contact
+points at the electrode to reseat rather than at a bar labelled `S2`. Electrode
+names come from Cortex per headset, so an Insight shows its five and an EPOC X
+its fourteen. Anything outside the 10–20 table is still drawn, in a row beneath
+the head, rather than dropped.
+
+The summary at the top is **contact quality as a percentage**, and so is the
+gate on **Start Training** (50% or better).
+
+It used to read the `signal` field, which is the *wireless link* between headset
+and dongle — a different measurement entirely. A simulated headset pins that at
+1, so the screen said "Overall Signal: Very Bad (1/4)" with every electrode
+green, and produced advice about moving closer to the USB receiver on a screen
+that is about electrodes. Cortex already ships the right number: the `OVERALL`
+column of the contact-quality stream is a percentage. Where a headset does not
+send one, the per-electrode 0–4 grades are averaged instead.
+
+Bands match emotiv-brain-light — 80%+ good, 50%+ fair, below that poor — so the
+two applications agree on what "good" means.
+
+### Knowing the headset is still on
+
+The flight screen and both training screens carry a **device pill**: a small head map, the headset id,
+and one contact-quality percentage, modelled on the pill in
+emotiv-brain-light and recoloured to this project's palette. A contact going
+bad during a run otherwise shows up only as the drone quietly not responding,
+and a training take recorded through a loose electrode is what produces a
+profile that never works. The pill also carries the **headset battery**, which
+turns amber below 40% and red below 20%.
+
+Contact data is no longer gated on the signal-check page being open, and every
+pill is driven from one place rather than each page wiring its own.
+
 ### Ring Run and the leaderboard
+
+Pressing **Start Run** does not start the clock. A three-second countdown runs
+first — *Get Ready!* over 3, 2, 1, then *Go!* — so nobody's timed round begins
+while they are still looking at the button they pressed. The scene dims behind
+it, the drone is reset, and nothing scores until *Go!*. Leaving the page
+mid-countdown cancels it the same way leaving mid-run abandons the run.
 
 On the **Fly the Simulator** screen, press **Start Run** — you play under the
 name you trained your profile with. Rings spawn ahead of the drone for 60
@@ -153,9 +359,12 @@ seconds; each one is 10 points, and the clock turns red for the last ten. When
 time is up you get your score, your position and the top five, with **Try
 Again**, **Show Leaderboard**, or **Finish — next player**.
 
-Ending a run in fullscreen shows the same result over the fullscreen simulator,
-leaderboard included, so a timed round never forces anyone back to the windowed
-view.
+The result screen congratulates the player by position and says what they just
+did — flew it with their mind. A top-three finish also gets confetti.
+
+`FullscreenResultDialog` still exists and still works; with the Fullscreen
+button removed nothing reaches it, so turning fullscreen back on restores that
+path unchanged.
 
 Scores live in `leaderboard.json` beside the other settings — one table per
 computer, no account and nothing uploaded. Leaving the test screen mid-run
@@ -167,7 +376,13 @@ applies live, and the app reopens in the same language next time.
 
 Two things stay in English on purpose: the raw Cortex/MOT/COM stream dumps in
 the log pane, and telemetry channel abbreviations (`PWR`, `ALT`, `THR`, `YAW`)
-on the HUD — they are protocol identifiers, not prose.
+on the HUD — along with electrode names like `AF3`, which are standard notation.
+They are protocol identifiers, not prose.
+
+Drone actions are translated for display through `i18n.drone_action()`. The
+adapter names them in English CamelCase (`MoveForward`) because that is what the
+config file and the Cortex layer speak; without that lookup the in-game banner
+printed the raw identifier in every language.
 
 ### Head Tracking Controls
 | Movement | Drone Action |

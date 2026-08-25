@@ -29,6 +29,13 @@ DEFAULT_CONFIG = {
     "deadzone": 0.02,
     "smoothing_window": 4,
 
+    # Turning the head left should steer left. This stays False for every
+    # headset except the ones that report yaw the other way round — MN8 sets it
+    # in its device profile below. It used to be missing here and switched on
+    # at the top level of config.json instead, which silently inverted every
+    # other headset too.
+    "invert_yaw": False,
+
     # Flight Settings
     "max_speed": 60,          # Max RC command value (0-100)
     "altitude_hold": True,    # Keep altitude stable when head is level

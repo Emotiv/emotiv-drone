@@ -17,6 +17,9 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 datas = [
     (os.path.join(ROOT, "certificates", "rootCA.pem"), "certificates"),
     (os.path.join(ROOT, "bg.png"), "."),
+    # Branding artwork. Optional at runtime — brand_pixmap() returns None and
+    # the chrome is simply not drawn — but a build without it looks unfinished.
+    (os.path.join(ROOT, "assets"), "assets"),
 ]
 
 # PyQt6 pulls in a lot it does not need here. Dropping the heavy optional

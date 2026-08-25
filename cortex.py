@@ -55,6 +55,7 @@ GET_CORTEX_INFO_ID                  =   22
 UPDATE_MARKER_REQUEST_ID            =   23
 UNSUB_REQUEST_ID                    =   24
 REFRESH_HEADSET_LIST_ID             =   25
+CLOSE_SESSION_ID                    =   26
 
 #define error_code
 ERR_PROFILE_ACCESS_DENIED = -32046
@@ -86,7 +87,8 @@ class Cortex(Dispatcher):
                 'save_profile_done', 'delete_profile_done', 'get_mc_active_action_done','mc_brainmap_done', 'mc_action_sensitivity_done', 
                 'mc_training_threshold_done', 'create_record_done', 'stop_record_done','warn_cortex_stop_all_sub', 'warn_record_post_processing_done',
                 'inject_marker_done', 'update_marker_done', 'export_record_done', 'new_data_labels', 
-                'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
+                'close_session_done', 'connection_failed', 'access_right_rejected', 'headset_not_found',
+                'headset_disconnected',                 'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
                 'new_met_data', 'new_pow_data', 'new_sys_data', 'headset_connected', 'headset_scanning_finished',
                 'subscribe_done', 'access_right_pending', 'query_headset_done']
     def __init__(self, client_id, client_secret, debug_mode=False, **kwargs):
@@ -94,6 +96,11 @@ class Cortex(Dispatcher):
         client_secret = "gU2pSgmLFjpMgkTcGq5HUwgeuERaaKaJYbxgi8i1q1JvDd9XDLbJffZMO3bzb4qDiKl5WRtkR0yyb8yiLzHmr8aPesW9kT9W7q2flEFDNJdfrNwyTLehDZSwbFovbSFm"  
         self.session_id = ''
         self.headset_id = ''
+        # Whether authorize() has ever succeeded on this socket. Distinguishes a
+        # socket that closed after a working session from one that never got
+        # off the ground — only the second is worth showing the user a
+        # troubleshooting screen for.
+        self.authorized = False
         self.debug = debug_mode
         self.debit = 10
         self.license = ''
@@ -153,12 +160,22 @@ class Cortex(Dispatcher):
         self.do_prepare_steps()
 
     def on_error(self, *args):
-        if len(args) == 2:
-            print(str(args[1]))
+        detail = str(args[1]) if len(args) == 2 else 'websocket error'
+        print(detail)
+        if not self.authorized:
+            # Nothing has worked yet, so this is a failure to reach Cortex at
+            # all — almost always EMOTIV Launcher not running.
+            self.emit('connection_failed', reason='unreachable', detail=detail)
 
     def on_close(self, *args, **kwargs):
+        # args is (ws, code, reason) on some websocket-client versions and
+        # shorter on others; indexing blindly used to raise inside the callback.
         print("on_close")
-        print(args[1])
+        detail = next((str(a) for a in args[1:] if a), '')
+        if detail:
+            print(detail)
+        if not self.authorized:
+            self.emit('connection_failed', reason='closed', detail=detail)
 
     def handle_result(self, recv_dic):
         if self.debug:
@@ -189,6 +206,7 @@ class Cortex(Dispatcher):
                 self.emit('access_right_pending', message=msg)
         elif req_id == AUTHORIZE_ID:
             print("Authorize successfully.")
+            self.authorized = True
             self.auth = result_dic['cortexToken']
             # Fetch the profile list so the UI can show a dropdown
             self.query_profile()
@@ -216,7 +234,11 @@ class Cortex(Dispatcher):
             elif self.headset_id == '':
                 self.emit('query_headset_done', data=self.headset_list)
             elif found_headset == False:
+                # A warning alone left the UI waiting on a connection that was
+                # never going to arrive, with every Connect button disabled.
                 warnings.warn("Can not found the headset " + self.headset_id + ". Please make sure the id is correct.")
+                self.emit('headset_not_found', headset=self.headset_id,
+                          data=self.headset_list)
             elif found_headset == True:
                 if headset_status == 'connected':
                     self.isHeadsetConnected = True
@@ -234,6 +256,14 @@ class Cortex(Dispatcher):
             self.session_id = result_dic['id']
             print("The session " + self.session_id + " is created successfully.")
             self.emit('create_session_done', data=self.session_id)
+        elif req_id == CLOSE_SESSION_ID:
+            # Deliberately not create_session_done: this used to share
+            # CREATE_SESSION_ID, so closing a session announced a new one and
+            # the controller re-subscribed to streams on the session it had
+            # just closed (Cortex -32007).
+            print("The session " + str(self.session_id) + " is closed.")
+            self.session_id = ''
+            self.emit('close_session_done', data=True)
         elif req_id == SUB_REQUEST_ID:
             # handle data label
             subscribed_streams = []
@@ -363,6 +393,18 @@ class Cortex(Dispatcher):
         if warning_code == ACCESS_RIGHT_GRANTED:
             # call authorize again
             self.authorize()
+        elif warning_code == HEADSET_DISCONNECTED_TIMEOUT:
+            # The headset dropped out mid-session. Nothing downstream noticed
+            # before this: the streams simply stopped and the drone went still.
+            print('[headset] disconnected (warning code 103)', flush=True)
+            self.isHeadsetConnected = False
+            self.emit('headset_disconnected', headset=self.headset_id)
+        elif warning_code == ACCESS_RIGHT_REJECTED:
+            # The user actively said no in EMOTIV Launcher. Nothing retries on
+            # its own from here, so the UI has to say so rather than sit on
+            # "Connecting..." forever.
+            print('[access] request rejected in EMOTIV Launcher', flush=True)
+            self.emit('access_right_rejected', message=warning_msg)
         elif warning_code == HEADSET_CONNECTED:
             # query headset again then create session
             self.emit('headset_connected', data=warning_msg)
@@ -549,7 +591,7 @@ class Cortex(Dispatcher):
         print('close session --------------------------------')
         close_session_request = { 
             "jsonrpc": "2.0",
-            "id": CREATE_SESSION_ID,
+            "id": CLOSE_SESSION_ID,
             "method": "updateSession",
             "params": {
                 "cortexToken": self.auth,

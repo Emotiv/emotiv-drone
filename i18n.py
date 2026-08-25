@@ -22,8 +22,21 @@ I18N = {
         "header.language": "🌐 Language",
 
         # ── Step 1 · authentication ──────────────────────────────────────────
-        "auth.title": "Step 1: Authenticate with Cortex",
-        "auth.group": "Credentials",
+        "auth.title": "Connection problem",
+        "auth.intro":
+            "The app could not reach EMOTIV Cortex. Work through the checks "
+            "below — the credentials at the bottom are only needed if support "
+            "has asked you to change them.",
+        "auth.check_launcher":
+            "1. Is EMOTIV Launcher running and signed in? Start it, then press "
+            "Retry Connection.",
+        "auth.check_approved":
+            "2. Has this application been approved? EMOTIV Launcher shows an "
+            "approval prompt the first time — approve it, then press Retry "
+            "Connection.",
+        "auth.reason": "Reported problem: {detail}",
+        "auth.group": "Credentials (rarely the problem)",
+        "auth.checks_group": "Check these first",
         "auth.client_id": "Client ID:",
         "auth.client_secret": "Client Secret:",
         "auth.simulate": "Simulation Mode (Test UI without headset)",
@@ -33,22 +46,26 @@ I18N = {
             "connecting as soon as the app opens.",
         "auth.connect": "Authenticate",
         "auth.retry": "Retry Connection",
+        "auth.retrying": "Reconnecting…",
         "auth.logs": "BCI Connection Logs:",
+        "auth.log_file": "Full log file: {path}",
 
         # ── Step 2 · headset ─────────────────────────────────────────────────
-        "headset.title": "Step 2: Select Headset",
+        "headset.title": "Step 1: Select Your Headset",
+        "headset.tagline": "Fly a drone with your mind. Pick the headset you are wearing to begin.",
         "headset.group": "Available Headsets",
         "headset.awaiting_auth": "— awaiting authentication —",
         "headset.connect": "Connect Headset",
         "headset.connecting_btn": "⏳ Connecting...",
         "headset.none_found": "⚠️ No headsets found",
-        "headset.item": "🎧 {id} ({status})",
+        "headset.count": "{count} found",
+        "hstatus.discovered": "Ready to connect",
+        "hstatus.connected": "Connected",
+        "hstatus.connecting": "Connecting…",
+        "hstatus.discovering": "Searching…",
         "headset.back": "⬅ Back to Auth",
 
         # ── Live tuning on the simulator screen ──────────────────────────────
-        "tune.group": "🎛 Sensitivity",
-        "tune.tilt": "Head tilt",
-        "tune.deadzone": "Deadzone",
         "tune.mental": "Mental commands",
         "tune.mental_waiting":
             "Load a trained profile to tune how easily each command fires.",
@@ -67,7 +84,6 @@ I18N = {
         "log.mc_sensitivity": "Mental command sensitivity set to {values}.",
         "log.no_profile_to_retrain": "Load a trained profile before retraining.",
 
-        "headset.label": "Headset:",
         "headset.refresh": "🔄 Refresh",
         "headset.refresh.tip": "Re-scan for headsets and reload the list from Cortex",
         "headset.refreshing": "⏳ Scanning…",
@@ -82,16 +98,11 @@ I18N = {
         "log.profile_resetting": "Erasing training for '{profile}'…",
         "log.profile_reset": "Training erased for '{profile}'.",
 
-        "badge.not_connected": "🔴 Not Connected",
-        "badge.connecting": "🟡 Connecting...",
-        "badge.waiting_approval": "🟡 Waiting for EMOTIV Launcher approval...",
         "badge.bci_active": "🟢 BCI: Active",
-        "badge.scan_finished": "🔴 BCI: Scan Finished / Not Found",
         "badge.profile_loaded": "🟢 🧠 Profile '{profile}' loaded. Ready for flight!",
-        "badge.status": "🟡 {status}",
 
         # ── Step 3 · profile ─────────────────────────────────────────────────
-        "profile.title": "Step 3: Training Profile",
+        "profile.title": "Step 2: Training Profile",
         "profile.group": "Training Profile",
         "profile.label": "Profile:",
         "profile.refresh": "🔄 Refresh",
@@ -120,6 +131,14 @@ I18N = {
             "4. Then press <b>Retry</b> below."
         ),
         "access.retry": "🔄 I've approved — Retry",
+        "access.rejected_title": "Access was declined",
+        "access.rejected_body":
+            "This application was declined in EMOTIV Launcher, so it cannot read "
+            "the headset. Open EMOTIV Launcher, approve this application, then "
+            "press Retry.",
+        "access.waiting": "Waiting for approval in EMOTIV Launcher…",
+        "access.checking": "Checking whether this application is approved…",
+        "access.granted": "Approved by EMOTIV Launcher.",
         "access.default_msg": (
             "Access not granted. Please open EMOTIV Launcher and approve this application."
         ),
@@ -128,109 +147,117 @@ I18N = {
         "eq.title": "EEG Signal Quality Check",
         "eq.subtitle": "Ensure all sensors show good contact quality before training.",
         "eq.overall_waiting": "Overall Signal: Waiting...",
-        "eq.overall": "Overall Signal: {quality} ({value}/4)",
+        "eq.overall": "Sensor contact: {quality} ({value}%)",
+        "quality.unknown_state": "Waiting…",
         "eq.group": "Sensor Contact Quality",
         "eq.waiting_data": "Waiting for sensor data...",
         "eq.ok": "✅ Signal quality is sufficient for training.",
-        "eq.bad": "⚠️ Improve sensor contact before training. Adjust the headset.",
-        "eq.back": "⬅ Back to Profiles",
-        "eq.next": "Start Training ➔",
-
-        "quality.none": "No Signal",
-        "quality.very_bad": "Very Bad",
-        "quality.bad": "Bad",
-        "quality.poor": "Poor",
-        "quality.fair": "Fair",
-        "quality.good": "Good",
-        "quality.unknown": "Unknown ({value})",
-        "quality.short_unknown": "?",
-
-        # ── Training screens ─────────────────────────────────────────────────
-        "train.neutral.title": "Training: Neutral Baseline",
-        "train.neutral.subtitle": "Relax and keep your mind clear. The drone should stay still.",
-        "train.push.title": "Training: Push Command (Forward)",
-        "train.push.subtitle": "Focus on the drone. Imagine pushing it forward with your mind.",
-        "train.waiting": "Waiting for training to start...",
-        "train.get_ready": "Get ready...",
-        "train.recording": "Recording... {seconds}s remaining",
-        "train.finishing": "Finishing up...",
-        "train.accepting": "Accepting training...",
-        "train.retrying": "Retrying training...",
-        "train.succeeded": "Training Succeeded! Good data quality.",
-        "train.failed": "Training Failed! Poor data quality.",
-        "train.complete": "All training complete! Saving profile...",
-        "train.accept": "Accept",
-        "train.reject": "Reject (Retry)",
-        "train.retry": "Retry",
-        "train.finish": "Finish & Go to Test Controls",
-
-        # ── Virtual flight test ──────────────────────────────────────────────
-        "test.title": "Step 4: Fly the Simulator",
-        "test.subtitle": (
-            "Tilt your head to fly and use your trained mental commands. "
-            "Ready to compete? Start a 60-second Ring Run."
-        ),
-        "test.state_group": "Simulator",
-        "test.status_group": "Status",
-        "test.landed": "🛫 Status: Landed",
-        "test.flying": "🛸 Status: Flying",
-        "test.last_command_none": "Last Mental Command: None",
-        "test.last_command": "Last Mental Command: {action}",
-        "test.last_command_ignored": "Last Mental Command: {action} (Ignored)",
-        "test.rc_group": "Motion Tracking (RC Channels)",
-        "test.yaw": "Left/Right (Yaw):",
-        "test.pitch": "Fwd/Back (Pitch):",
-        "test.raw_group": "Raw Stream Data",
-        "test.back": "⬅ Back",
-        "test.fullscreen": "📺 Fullscreen",
-        "test.recenter": "🎯 Recenter Headset",
-        "test.next": "Next: Real Drone Setup ➔",
-
-        # ── Drone connection ─────────────────────────────────────────────────
-        "drone.title": "Step 3: Connect to DJI Tello",
-        "drone.subtitle": (
-            "Ensure you are connected to the drone's WiFi network before continuing."
-        ),
-        "drone.ready": "Ready to connect.",
-        "drone.connect": "Connect to Drone",
-        "drone.connecting": "Connecting to Tello WiFi...",
-        "drone.sim_skip": "Simulation mode. Skipping real drone connection.",
-        "drone.connected": "Drone connected successfully! Battery: {battery}%",
-        "drone.failed": "Connection failed: {detail}",
-        "drone.launch": "Launch Flight Dashboard 🚀",
-        "drone.back": "⬅ Back to Test",
-
-        # ── Flight dashboard ─────────────────────────────────────────────────
-        "dash.camera": "📹 Live Camera Feed",
-        "dash.telemetry": "📊 Telemetry",
-        "dash.battery_empty": "Drone Batt: —",
-        "dash.height_empty": "Height: —",
-        "dash.temp_empty": "Temp: —",
-        "dash.headset_empty": "Headset: —",
         "dash.battery": "Drone Batt: {value}%",
-        "dash.height": "Height: {value}cm",
-        "dash.temp": "Temp: {value}°C",
-        "dash.headset": "Headset: {battery}% | Sig: {signal}/4",
+        "dash.battery_empty": "Drone Batt: —",
+        "dash.camera": "📹 Live Camera Feed",
         "dash.controls": "🕹️ Flight & Controls",
-        "dash.takeoff": "🚀 Take Off",
-        "dash.land": "🛬 Land",
-        "dash.emergency": "⛔ EMERGENCY",
-        "dash.recenter": "🎯 Recenter",
+        "dash.disconnect": "🔌 Disconnect & Quit",
         "dash.drone_connected": "🟢 Drone: Connected",
         "dash.drone_sim": "🟡 Drone: Simulating",
-        "dash.mc_none": "🧠 MC: None",
-        "dash.mc": "🧠 MC: {action}",
-        "dash.system": "System",
+        "dash.emergency": "⛔ EMERGENCY",
+        "dash.headset": "Headset: {battery}% | Sig: {signal}/4",
+        "dash.headset_empty": "Headset: —",
+        "dash.height": "Height: {value}cm",
+        "dash.height_empty": "Height: —",
         "dash.hud": "📺 Fullscreen HUD",
-        "dash.disconnect": "🔌 Disconnect & Quit",
+        "dash.land": "🛬 Land",
         "dash.log": "📟 Log",
-
-        # ── Simulator / HUD overlays ─────────────────────────────────────────
-        "sim.score": "🏆 {score}",
-        "sim.readout": "ALT {alt}m   ·   SPD {spd}",
+        "dash.mc": "🧠 MC: {action}",
+        "dash.mc_none": "🧠 MC: None",
+        "dash.recenter": "🎯 Recenter",
+        "dash.system": "System",
+        "dash.takeoff": "🚀 Take Off",
+        "dash.telemetry": "📊 Telemetry",
+        "dash.temp": "Temp: {value}°C",
+        "dash.temp_empty": "Temp: —",
+        "drone.back": "⬅ Back to Test",
+        "drone.connect": "Connect to Drone",
+        "drone.connected": "Drone connected successfully! Battery: {battery}%",
+        "drone.connecting": "Connecting to Tello WiFi...",
+        "drone.failed": "Connection failed: {detail}",
+        "drone.launch": "Launch Flight Dashboard 🚀",
+        "drone.ready": "Ready to connect.",
+        "drone.sim_skip": "Simulation mode. Skipping real drone connection.",
+        "drone.subtitle": "Ensure you are connected to the drone's WiFi network before continuing.",
+        "drone.title": "Step 4: Connect to DJI Tello",
+        "eq.back": "⬅ Back to Profiles",
+        "eq.bad": "⚠️ Improve sensor contact before training. Adjust the headset.",
+        "eq.next": "Start Training ➔",
+        "quality.bad": "Bad",
+        "quality.fair": "Fair",
+        "quality.good": "Good",
+        "quality.none": "No Signal",
+        "quality.poor": "Poor",
+        "quality.short_unknown": "?",
+        "quality.unknown": "Unknown ({value})",
+        "quality.very_bad": "Very Bad",
         "sim.altitude": "ALT {alt}m",
         "sim.esc_hint": "Press ESC to exit fullscreen",
         "sim.mental_command": "🧠 {action}",
+        "sim.readout": "ALT {alt}m   ·   SPD {spd}",
+        "sim.score": "🏆 {score}",
+        "test.back": "⬅ Back",
+        "test.next": "Next: Real Drone Setup ➔",
+        "test.recenter": "🎯 Recenter Headset",
+        "test.state_group": "Simulator",
+        "test.title": "Step 3: Fly the Simulator",
+        "train.accept": "Accept",
+        "train.accepting": "Accepting training...",
+        "train.complete": "All training complete! Saving profile...",
+        "train.failed": "Training Failed! Poor data quality.",
+        "train.finish": "Finish & Go to Test Controls",
+        "train.abandon": "⬅ Start over — back to headsets",
+        "train.abandon.tip": "Stops this training and releases the headset for the next person.",
+        "log.training_abandoned": "Training abandoned; releasing the headset.",
+        "train.finishing": "Finishing up...",
+        "train.get_ready": "Get ready...",
+        "train.neutral.subtitle": "Relax and keep your mind clear. The drone should stay still.",
+        "train.neutral.title": "Training: Neutral Baseline",
+        "train.push.subtitle": "Focus on the drone. Imagine pushing it forward with your mind.",
+        "train.push.title": "Training: Push Command (Forward)",
+        "train.recording": "Recording... {seconds}s remaining",
+        "train.reject": "Reject (Retry)",
+        "train.retry": "Retry",
+        "train.retrying": "Retrying training...",
+        "train.succeeded": "Training Succeeded! Good data quality.",
+        "train.waiting": "Waiting for training to start...",
+        "droneaction.FlipRight": "Flip right",
+        "droneaction.MoveForward": "Forward",
+        "droneaction.MoveBack": "Back",
+        "droneaction.MoveLeft": "Left",
+        "droneaction.MoveRight": "Right",
+        "droneaction.MoveUp": "Up",
+        "droneaction.MoveDown": "Down",
+
+        # ── How to fly (simulator screen + in-game overlay) ───────────────────
+        "howto.recenter": "Sitting comfortably? Press Recenter to make your current head position the new straight-ahead.",
+        "howto.overlay_steer": "Turn your head to steer",
+        "howto.overlay_forward": "Think “{action}” to fly forward",
+        "howto.overlay_rings": "Fly through the rings — 10 points each",
+
+        # ── Congratulations on the result screen ─────────────────────────────
+        "game.congrats_first": "🥇 Congratulations — you are in 1st place!",
+        "game.congrats_podium": "🎉 Congratulations — you made the podium in {rank} place!",
+        "game.congrats_ranked": "Nice flying — you finished in {rank} place out of {total}!",
+        "game.congrats_only": "🥇 Congratulations — you set the first score!",
+        "game.mind_message": "And you did it using nothing but your mind. 🧠",
+        "game.ordinal_1": "1st", "game.ordinal_2": "2nd", "game.ordinal_3": "3rd",
+        "game.ordinal_n": "{n}th",
+
+        # ── Contact-quality head map ─────────────────────────────────────────
+        "eq.headmap_group": "Sensor positions (10–20 system)",
+        "eq.headmap_hint":
+            "Each dot is one sensor, drawn where it sits on your head — nose at the top. "
+            "Green means good contact; red means it needs adjusting.",
+        "eq.headmap_front": "FRONT",
+        "eq.headmap_back": "BACK",
+        "eq.headmap_waiting": "Waiting for the headset…",
+        "eq.legend": "Contact:",
         "hud.no_signal": "NO CAMERA SIGNAL",
         "hud.esc": "ESC TO EXIT",
 
@@ -244,6 +271,8 @@ I18N = {
         "game.no_profile": "— train a profile first —",
         "game.start": "▶ Start Run",
         "game.running": "Run in progress…",
+        "game.get_ready": "Get Ready!",
+        "game.go": "Go!",
         "game.show_leaderboard": "🏆 Show Leaderboard",
         "game.timer": "{seconds}s",
         "game.idle_hint": "Press Start Run to begin a timed round",
@@ -354,6 +383,7 @@ I18N = {
         "log.no_headsets": (
             "No headsets found. Make sure Emotiv App is running and headset is turned on."
         ),
+        "log.headset_gone": "{headset} is no longer available. Pick another headset.",
         "log.headsets_available": "{count} headset(s) available. Please select one to connect.",
         "log.no_headset_selected": "No valid headset selected.",
         "log.connecting_headset": "Connecting to headset '{headset}'...",
@@ -364,6 +394,15 @@ I18N = {
         "log.bci_not_connected": "Error: BCI not connected. Connect first, then load a profile.",
         "log.refreshing_profiles": "Refreshing profile list...",
         "log.refresh_failed": "Refresh failed: {detail}",
+        "log.releasing_headset": "Disconnecting the headset and re-scanning…",
+        "log.switching_headset": "Disconnecting {headset} before switching…",
+        "reconnect.title": "⚠️ Headset disconnected",
+        "reconnect.detail": "Lost contact with {headset}. Put the headset back on and keep it near the receiver — reconnecting automatically.",
+        "reconnect.remaining": "Giving up in {seconds}s",
+        "log.headset_lost": "Lost {headset}. Trying to reconnect…",
+        "log.headset_recovered": "{headset} is back. Resuming.",
+        "log.headset_lost_final": "Gave up on {headset}. Returning to the headset list.",
+        "log.sensor_labels": "Headset sensors: {labels}",
         "log.bci_status": "BCI Status: {status}",
         "log.retry_access": "Retrying requestAccess with EMOTIV Cortex...",
         "log.retry_failed": "Retry failed: {detail}",
@@ -412,8 +451,18 @@ I18N = {
         "header.language": "🌐 语言",
 
         # ── Step 1 · authentication ──────────────────────────────────────────
-        "auth.title": "第 1 步：连接 Cortex 并授权",
-        "auth.group": "凭据",
+        "auth.title": "连接出现问题",
+        "auth.intro":
+            "应用无法连接到 EMOTIV Cortex。请依次检查以下项目 —— "
+            "只有在技术支持要求更改时，才需要修改下方的凭据。",
+        "auth.check_launcher":
+            "1. EMOTIV Launcher 是否已运行并已登录？请先启动它，然后点击“重新连接”。",
+        "auth.check_approved":
+            "2. 本应用是否已获批准？EMOTIV Launcher 首次会弹出授权提示 —— "
+            "请批准后点击“重新连接”。",
+        "auth.reason": "报告的问题：{detail}",
+        "auth.group": "凭据（通常不是问题所在）",
+        "auth.checks_group": "请先检查以下项目",
         "auth.client_id": "Client ID：",
         "auth.client_secret": "Client Secret：",
         "auth.simulate": "模拟模式（无需头戴设备即可测试界面）",
@@ -421,22 +470,26 @@ I18N = {
         "auth.auto_connect.tip": "保存 Client ID 与 Secret 后，打开应用即跳过本页面并直接开始连接。",
         "auth.connect": "授权",
         "auth.retry": "重新连接",
+        "auth.retrying": "正在重新连接…",
         "auth.logs": "脑机接口连接日志：",
+        "auth.log_file": "完整日志文件：{path}",
 
         # ── Step 2 · headset ─────────────────────────────────────────────────
-        "headset.title": "第 2 步：选择头戴设备",
+        "headset.title": "第 1 步：选择头戴设备",
+        "headset.tagline": "用意念驾驶无人机。请选择您正在佩戴的头戴设备以开始。",
         "headset.group": "可用的头戴设备",
         "headset.awaiting_auth": "— 等待授权 —",
         "headset.connect": "连接头戴设备",
         "headset.connecting_btn": "⏳ 连接中…",
         "headset.none_found": "⚠️ 未找到头戴设备",
-        "headset.item": "🎧 {id}（{status}）",
+        "headset.count": "找到 {count} 台",
+        "hstatus.discovered": "可连接",
+        "hstatus.connected": "已连接",
+        "hstatus.connecting": "正在连接…",
+        "hstatus.discovering": "正在搜索…",
         "headset.back": "⬅ 返回授权",
 
         # ── Live tuning on the simulator screen ──────────────────────────────
-        "tune.group": "🎛 灵敏度",
-        "tune.tilt": "头部倾斜",
-        "tune.deadzone": "死区",
         "tune.mental": "意念指令",
         "tune.mental_waiting": "加载一个已训练的配置文件，即可调整各指令的触发难度。",
 
@@ -451,7 +504,6 @@ I18N = {
         "log.mc_sensitivity": "意念指令灵敏度已设置为 {values}。",
         "log.no_profile_to_retrain": "请先加载一个已训练的配置文件再重新训练。",
 
-        "headset.label": "头戴设备：",
         "headset.refresh": "🔄 刷新",
         "headset.refresh.tip": "重新扫描头戴设备并从 Cortex 重新获取列表",
         "headset.refreshing": "⏳ 扫描中…",
@@ -466,16 +518,11 @@ I18N = {
         "log.profile_resetting": "正在清除「{profile}」的训练数据…",
         "log.profile_reset": "「{profile}」的训练数据已清除。",
 
-        "badge.not_connected": "🔴 未连接",
-        "badge.connecting": "🟡 连接中…",
-        "badge.waiting_approval": "🟡 等待 EMOTIV Launcher 授权…",
         "badge.bci_active": "🟢 脑机接口：已激活",
-        "badge.scan_finished": "🔴 脑机接口：扫描结束 / 未找到设备",
         "badge.profile_loaded": "🟢 🧠 配置文件「{profile}」已加载，可以起飞了！",
-        "badge.status": "🟡 {status}",
 
         # ── Step 3 · profile ─────────────────────────────────────────────────
-        "profile.title": "第 3 步：训练配置文件",
+        "profile.title": "第 2 步：训练配置文件",
         "profile.group": "训练配置文件",
         "profile.label": "配置文件：",
         "profile.refresh": "🔄 刷新",
@@ -504,110 +551,130 @@ I18N = {
             "4. 然后点击下方的<b>重试</b>。"
         ),
         "access.retry": "🔄 已授权 — 重试",
+        "access.rejected_title": "访问被拒绝",
+        "access.rejected_body":
+            "本应用在 EMOTIV Launcher 中被拒绝，因此无法读取头戴设备。"
+            "请打开 EMOTIV Launcher 批准本应用，然后点击“重试”。",
+        "access.waiting": "正在等待 EMOTIV Launcher 中的授权…",
+        "access.checking": "正在检查本应用是否已获批准…",
+        "access.granted": "已通过 EMOTIV Launcher 批准。",
         "access.default_msg": "尚未获得访问权限。请打开 EMOTIV Launcher 并批准本应用。",
 
         # ── EEG quality check ────────────────────────────────────────────────
         "eq.title": "脑电信号质量检查",
         "eq.subtitle": "开始训练前，请确认所有电极的接触质量良好。",
         "eq.overall_waiting": "整体信号：等待中…",
-        "eq.overall": "整体信号：{quality}（{value}/4）",
+        "eq.overall": "传感器接触：{quality}（{value}%）",
+        "quality.unknown_state": "等待中…",
         "eq.group": "电极接触质量",
         "eq.waiting_data": "等待传感器数据…",
         "eq.ok": "✅ 信号质量已满足训练要求。",
-        "eq.bad": "⚠️ 请先改善电极接触，调整头戴设备后再训练。",
-        "eq.back": "⬅ 返回配置文件",
-        "eq.next": "开始训练 ➔",
-
-        "quality.none": "无信号",
-        "quality.very_bad": "非常差",
-        "quality.bad": "差",
-        "quality.poor": "较差",
-        "quality.fair": "一般",
-        "quality.good": "良好",
-        "quality.unknown": "未知（{value}）",
-        "quality.short_unknown": "？",
-
-        # ── Training screens ─────────────────────────────────────────────────
-        "train.neutral.title": "训练：中性基线",
-        "train.neutral.subtitle": "请放松并保持头脑清空。无人机应保持静止。",
-        "train.push.title": "训练：推（前进）指令",
-        "train.push.subtitle": "注视无人机，用意念想象把它向前推。",
-        "train.waiting": "等待训练开始…",
-        "train.get_ready": "准备…",
-        "train.recording": "记录中…剩余 {seconds} 秒",
-        "train.finishing": "正在收尾…",
-        "train.accepting": "正在接受训练结果…",
-        "train.retrying": "正在重新训练…",
-        "train.succeeded": "训练成功！数据质量良好。",
-        "train.failed": "训练失败！数据质量不佳。",
-        "train.complete": "全部训练完成！正在保存配置文件…",
-        "train.accept": "接受",
-        "train.reject": "拒绝（重试）",
-        "train.retry": "重试",
-        "train.finish": "完成并前往测试控制",
-
-        # ── Virtual flight test ──────────────────────────────────────────────
-        "test.title": "第 4 步：飞行模拟器",
-        "test.subtitle": "转动头部来飞行，并使用你训练好的意念指令。想比一比？开始 60 秒冲环挑战。",
-        "test.state_group": "模拟器",
-        "test.status_group": "状态",
-        "test.landed": "🛫 状态：已降落",
-        "test.flying": "🛸 状态：飞行中",
-        "test.last_command_none": "最近的意念指令：无",
-        "test.last_command": "最近的意念指令：{action}",
-        "test.last_command_ignored": "最近的意念指令：{action}（已忽略）",
-        "test.rc_group": "动作追踪（遥控通道）",
-        "test.yaw": "左/右（偏航）：",
-        "test.pitch": "前/后（俯仰）：",
-        "test.raw_group": "原始数据流",
-        "test.back": "⬅ 返回",
-        "test.fullscreen": "📺 全屏",
-        "test.recenter": "🎯 重新校准头戴设备",
-        "test.next": "下一步：连接真实无人机 ➔",
-
-        # ── Drone connection ─────────────────────────────────────────────────
-        "drone.title": "第 3 步：连接 DJI Tello",
-        "drone.subtitle": "继续之前，请确认电脑已连接到无人机的 WiFi 网络。",
-        "drone.ready": "准备连接。",
-        "drone.connect": "连接无人机",
-        "drone.connecting": "正在连接 Tello WiFi…",
-        "drone.sim_skip": "模拟模式，跳过真实无人机连接。",
-        "drone.connected": "无人机连接成功！电量：{battery}%",
-        "drone.failed": "连接失败：{detail}",
-        "drone.launch": "启动飞行仪表盘 🚀",
-        "drone.back": "⬅ 返回测试",
-
-        # ── Flight dashboard ─────────────────────────────────────────────────
-        "dash.camera": "📹 实时摄像画面",
-        "dash.telemetry": "📊 遥测数据",
-        "dash.battery_empty": "无人机电量：—",
-        "dash.height_empty": "高度：—",
-        "dash.temp_empty": "温度：—",
-        "dash.headset_empty": "头戴设备：—",
         "dash.battery": "无人机电量：{value}%",
-        "dash.height": "高度：{value} 厘米",
-        "dash.temp": "温度：{value}°C",
-        "dash.headset": "头戴设备：{battery}% | 信号：{signal}/4",
+        "dash.battery_empty": "无人机电量：—",
+        "dash.camera": "📹 实时摄像画面",
         "dash.controls": "🕹️ 飞行与控制",
-        "dash.takeoff": "🚀 起飞",
-        "dash.land": "🛬 降落",
-        "dash.emergency": "⛔ 紧急停止",
-        "dash.recenter": "🎯 重新校准",
+        "dash.disconnect": "🔌 断开并退出",
         "dash.drone_connected": "🟢 无人机：已连接",
         "dash.drone_sim": "🟡 无人机：模拟中",
-        "dash.mc_none": "🧠 意念指令：无",
-        "dash.mc": "🧠 意念指令：{action}",
-        "dash.system": "系统",
+        "dash.emergency": "⛔ 紧急停止",
+        "dash.headset": "头戴设备：{battery}% | 信号：{signal}/4",
+        "dash.headset_empty": "头戴设备：—",
+        "dash.height": "高度：{value} 厘米",
+        "dash.height_empty": "高度：—",
         "dash.hud": "📺 全屏 HUD",
-        "dash.disconnect": "🔌 断开并退出",
+        "dash.land": "🛬 降落",
         "dash.log": "📟 日志",
-
-        # ── Simulator / HUD overlays ─────────────────────────────────────────
-        "sim.score": "🏆 {score}",
-        "sim.readout": "高度 {alt} 米   ·   速度 {spd}",
+        "dash.mc": "🧠 意念指令：{action}",
+        "dash.mc_none": "🧠 意念指令：无",
+        "dash.recenter": "🎯 重新校准",
+        "dash.system": "系统",
+        "dash.takeoff": "🚀 起飞",
+        "dash.telemetry": "📊 遥测数据",
+        "dash.temp": "温度：{value}°C",
+        "dash.temp_empty": "温度：—",
+        "drone.back": "⬅ 返回测试",
+        "drone.connect": "连接无人机",
+        "drone.connected": "无人机连接成功！电量：{battery}%",
+        "drone.connecting": "正在连接 Tello WiFi…",
+        "drone.failed": "连接失败：{detail}",
+        "drone.launch": "启动飞行仪表盘 🚀",
+        "drone.ready": "准备连接。",
+        "drone.sim_skip": "模拟模式，跳过真实无人机连接。",
+        "drone.subtitle": "继续之前，请确认电脑已连接到无人机的 WiFi 网络。",
+        "drone.title": "第 4 步：连接 DJI Tello",
+        "eq.back": "⬅ 返回配置文件",
+        "eq.bad": "⚠️ 请先改善电极接触，调整头戴设备后再训练。",
+        "eq.next": "开始训练 ➔",
+        "quality.bad": "差",
+        "quality.fair": "一般",
+        "quality.good": "良好",
+        "quality.none": "无信号",
+        "quality.poor": "较差",
+        "quality.short_unknown": "？",
+        "quality.unknown": "未知（{value}）",
+        "quality.very_bad": "非常差",
         "sim.altitude": "高度 {alt} 米",
         "sim.esc_hint": "按 ESC 退出全屏",
         "sim.mental_command": "🧠 {action}",
+        "sim.readout": "高度 {alt} 米   ·   速度 {spd}",
+        "sim.score": "🏆 {score}",
+        "test.back": "⬅ 返回",
+        "test.next": "下一步：连接真实无人机 ➔",
+        "test.recenter": "🎯 重新校准头戴设备",
+        "test.state_group": "模拟器",
+        "test.title": "第 3 步：飞行模拟器",
+        "train.accept": "接受",
+        "train.accepting": "正在接受训练结果…",
+        "train.complete": "全部训练完成！正在保存配置文件…",
+        "train.failed": "训练失败！数据质量不佳。",
+        "train.finish": "完成并前往测试控制",
+        "train.abandon": "⬅ 重新开始 —— 返回设备列表",
+        "train.abandon.tip": "停止本次训练并释放头戴设备，交给下一位使用者。",
+        "log.training_abandoned": "训练已放弃，正在释放头戴设备。",
+        "train.finishing": "正在收尾…",
+        "train.get_ready": "准备…",
+        "train.neutral.subtitle": "请放松并保持头脑清空。无人机应保持静止。",
+        "train.neutral.title": "训练：中性基线",
+        "train.push.subtitle": "注视无人机，用意念想象把它向前推。",
+        "train.push.title": "训练：推（前进）指令",
+        "train.recording": "记录中…剩余 {seconds} 秒",
+        "train.reject": "拒绝（重试）",
+        "train.retry": "重试",
+        "train.retrying": "正在重新训练…",
+        "train.succeeded": "训练成功！数据质量良好。",
+        "train.waiting": "等待训练开始…",
+        "droneaction.FlipRight": "右翻",
+        "droneaction.MoveBack": "后退",
+        "droneaction.MoveDown": "下降",
+        "droneaction.MoveForward": "前进",
+        "droneaction.MoveLeft": "向左",
+        "droneaction.MoveRight": "向右",
+        "droneaction.MoveUp": "上升",
+
+        # ── 如何飞行 ───────────────────────────────────────────────────
+        "howto.recenter": "坐好了吗？按“重新居中”将当前头部位置设为新的正前方。",
+        "howto.overlay_steer": "转动头部控制方向",
+        "howto.overlay_forward": "意念“{action}”即可前进",
+        "howto.overlay_rings": "穿过光环 —— 每个 10 分",
+
+        # ── 结果祝贺 ───────────────────────────────────────────────────
+        "game.congrats_first": "🥇 恭喜 —— 您获得了第 1 名！",
+        "game.congrats_podium": "🎉 恭喜 —— 您登上了领奖台，第 {rank} 名！",
+        "game.congrats_ranked": "飞得不错 —— 您在 {total} 人中排第 {rank} 名！",
+        "game.congrats_only": "🥇 恭喜 —— 您创下了第一个成绩！",
+        "game.mind_message": "而这一切，完全靠您的意念完成。🧠",
+        "game.ordinal_1": "1", "game.ordinal_2": "2", "game.ordinal_3": "3",
+        "game.ordinal_n": "{n}",
+
+        # ── 电极接触质量头部图 ─────────────────────────────────────
+        "eq.headmap_group": "传感器位置（10–20 系统）",
+        "eq.headmap_hint":
+            "每个圆点代表一个传感器，按它在头部的实际位置绘制 —— 鼻子在上方。"
+            "绿色表示接触良好，红色表示需要调整。",
+        "eq.headmap_front": "前",
+        "eq.headmap_back": "后",
+        "eq.headmap_waiting": "等待头戴设备…",
+        "eq.legend": "接触：",
         "hud.no_signal": "无摄像信号",
         "hud.esc": "按 ESC 退出",
 
@@ -621,6 +688,8 @@ I18N = {
         "game.no_profile": "— 请先训练一个配置文件 —",
         "game.start": "▶ 开始挑战",
         "game.running": "挑战进行中…",
+        "game.get_ready": "准备好！",
+        "game.go": "开始！",
         "game.show_leaderboard": "🏆 查看排行榜",
         "game.timer": "{seconds} 秒",
         "game.idle_hint": "点击「开始挑战」进入计时回合",
@@ -710,6 +779,7 @@ I18N = {
 
         # ── Log lines emitted by the UI itself ───────────────────────────────
         "log.no_headsets": "未找到头戴设备。请确认 Emotiv 应用正在运行且设备已开机。",
+        "log.headset_gone": "{headset} 已不可用。请选择其他头戴设备。",
         "log.headsets_available": "共有 {count} 台头戴设备可用，请选择一台进行连接。",
         "log.no_headset_selected": "未选择有效的头戴设备。",
         "log.connecting_headset": "正在连接头戴设备「{headset}」…",
@@ -720,6 +790,15 @@ I18N = {
         "log.bci_not_connected": "错误：脑机接口未连接。请先连接，再加载配置文件。",
         "log.refreshing_profiles": "正在刷新配置文件列表…",
         "log.refresh_failed": "刷新失败：{detail}",
+        "log.releasing_headset": "正在断开头戴设备并重新扫描…",
+        "log.switching_headset": "正在断开 {headset} 以切换设备…",
+        "reconnect.title": "⚠️ 头戴设备已断开",
+        "reconnect.detail": "与 {headset} 失去连接。请重新戴好设备并靠近接收器 —— 正在自动重连。",
+        "reconnect.remaining": "{seconds} 秒后放弃",
+        "log.headset_lost": "已失去 {headset} 的连接，正在尝试重连…",
+        "log.headset_recovered": "{headset} 已恢复连接，继续。",
+        "log.headset_lost_final": "已放弃 {headset}，返回设备列表。",
+        "log.sensor_labels": "头戴设备传感器：{labels}",
         "log.bci_status": "脑机接口状态：{status}",
         "log.retry_access": "正在向 EMOTIV Cortex 重新发送授权请求…",
         "log.retry_failed": "重试失败：{detail}",
@@ -894,6 +973,35 @@ _BACKEND_PATTERNS = [
     (re.compile(r"^Profile '(.*)' loaded\. Ready for flight!$"),
      "bstatus.profile_loaded", ("profile",)),
 ]
+
+
+def headset_status(status: str) -> str:
+    """Cortex's headset state word, in the user's language.
+
+    Cortex reports these in English ("discovered", "connected"); unknown states
+    pass through untouched rather than vanishing.
+    """
+    key = f"hstatus.{str(status).lower()}"
+    return t(key) if has(key) else str(status)
+
+
+def drone_action(action: str) -> str:
+    """Player-facing name for a drone action.
+
+    The adapter and the config file talk in English CamelCase identifiers
+    ("MoveForward"), which is right for a protocol and wrong for a banner shown
+    mid-game. Unknown actions fall through unchanged rather than blanking out.
+    """
+    if not action:
+        return ""
+    key = f"droneaction.{action}"
+    return t(key) if has(key) else action
+
+
+def ordinal(n: int) -> str:
+    """'1st', '2nd', '3rd', '4th' — and whatever the language uses instead."""
+    key = f"game.ordinal_{n}" if n in (1, 2, 3) else "game.ordinal_n"
+    return t(key, n=n)
 
 
 def backend_status(text: str) -> str:

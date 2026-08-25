@@ -31,7 +31,7 @@ class TelloDroneClient:
                  profiles_callback=None, headsets_callback=None,
                  training_callback=None, dev_data_callback=None,
                  mc_config_callback=None, brainmap_callback=None,
-                 profile_admin_callback=None):
+                 profile_admin_callback=None, dev_labels_callback=None):
         self.c = Cortex(client_id, client_secret, debug_mode=debug)
 
         self.bci_status_callback = bci_status_callback
@@ -43,6 +43,11 @@ class TelloDroneClient:
         self.mc_config_callback = mc_config_callback
         self.brainmap_callback = brainmap_callback
         self.profile_admin_callback = profile_admin_callback
+        self.dev_labels_callback = dev_labels_callback
+        # Electrode names for the contact-quality stream, e.g.
+        # ['AF3','T7','Pz','T8','AF4']. Cortex reports them per headset, so the
+        # head map can only be drawn once this has arrived.
+        self.dev_labels = []
         # Filled in by mentalCommandActiveAction; a reset needs to know which
         # actions actually carry training data.
         self.last_active_actions = []
@@ -85,6 +90,10 @@ class TelloDroneClient:
         self.c.bind(headset_scanning_finished=self.on_headset_scanning_finished)
         self.c.bind(subscribe_done=self.on_subscribe_done)
         self.c.bind(access_right_pending=self.on_access_right_pending)
+        self.c.bind(access_right_rejected=self.on_access_right_rejected)
+        self.c.bind(connection_failed=self.on_connection_failed)
+        self.c.bind(headset_not_found=self.on_headset_not_found)
+        self.c.bind(headset_disconnected=self.on_headset_disconnected)
         self.c.bind(query_headset_done=self.on_query_headset_done)
         self.c.bind(query_profile_done=self.on_query_profile_done)
         self.c.bind(load_unload_profile_done=self.on_load_unload_profile_done)
@@ -156,9 +165,19 @@ class TelloDroneClient:
 
     def on_new_dev_data(self, *args, **kwargs):
         data = kwargs.get('data') or {}
-        signal = data.get('signal', 0)
-        battery = data.get('batteryPercent', 0)
-        dev_cq = data.get('dev', [])
+        # Cortex reports signal strength as a float (1.0). The Qt signals these
+        # values travel on are declared int, and handing PyQt a float there does
+        # not round — it produced garbage like -998818480, which read as
+        # "Unknown" on the signal check and disabled the Start Training button.
+        def _as_int(value, default=0):
+            try:
+                return int(round(float(value)))
+            except (TypeError, ValueError):
+                return default
+
+        signal = _as_int(data.get('signal', 0))
+        battery = _as_int(data.get('batteryPercent', 0))
+        dev_cq = [_as_int(v) for v in (data.get('dev', []) or [])]
         if self.bci_telemetry_callback:
             self.bci_telemetry_callback(battery, signal)
         if self.dev_data_callback:
@@ -180,6 +199,15 @@ class TelloDroneClient:
         data = kwargs.get('data', {})
         stream_name = data.get('streamName')
         labels = data.get('labels')
+        if stream_name == 'dev' and labels:
+            # The contact-quality columns arrive named; without them the EQ
+            # screen can only fall back to S0..Sn and cannot place anything on
+            # a scalp map.
+            self.dev_labels = list(labels)
+            print(f"[dev] Sensor labels: {self.dev_labels}", flush=True)
+            if self.dev_labels_callback:
+                self.dev_labels_callback(list(self.dev_labels))
+
         if stream_name in ['mot', 'com'] and labels:
             print(f"[{stream_name}] Labels: {labels}")
             if stream_name == 'mot':
@@ -266,6 +294,59 @@ class TelloDroneClient:
         print(error_msg, flush=True)
         if self.bci_status_callback:
             self.bci_status_callback(error_msg)
+
+    def on_headset_disconnected(self, *args, **kwargs):
+        """The headset dropped out while we were using it."""
+        headset = kwargs.get('headset', '')
+        print(f"[headset] lost '{headset}'", flush=True)
+        if self.bci_status_callback:
+            self.bci_status_callback(f"HEADSET_LOST:{headset}")
+
+    def reconnect_headset(self, headset_id: str):
+        """One attempt at getting a dropped headset back.
+
+        Deliberately not a fresh session: reconnecting the device is enough for
+        Cortex to resume the streams the existing session is subscribed to, and
+        tearing the session down would lose the loaded profile with it.
+        """
+        try:
+            self.c.set_wanted_headset(headset_id)
+            self.c.query_headset()
+            return True
+        except Exception as e:
+            print(f"[headset] reconnect attempt failed: {e}", flush=True)
+            return False
+
+    def on_headset_not_found(self, *args, **kwargs):
+        """The headset we were asked to connect to is no longer in the list."""
+        headset = kwargs.get('headset', '')
+        print(f"[headset] '{headset}' is no longer available", flush=True)
+        # Forget it, or every later queryHeadset re-runs this same dead end.
+        self.c.set_wanted_headset('')
+        if self.headsets_callback:
+            self.headsets_callback(kwargs.get('data') or [])
+        if self.bci_status_callback:
+            self.bci_status_callback(f"HEADSET_NOT_FOUND:{headset}")
+
+    def on_connection_failed(self, *args, **kwargs):
+        """Cortex could not be reached, or dropped before authorizing.
+
+        Reported through the status channel with a prefix the UI switches on,
+        the same way PENDING_ACCESS: is handled. Until this existed the app sat
+        on "Connecting..." indefinitely when EMOTIV Launcher was not running.
+        """
+        reason = kwargs.get('reason', 'unreachable')
+        detail = kwargs.get('detail', '')
+        print(f"[connection_failed] {reason}: {detail}", flush=True)
+        if self.bci_status_callback:
+            self.bci_status_callback(f"CONNECTION_FAILED:{detail}")
+
+    def on_access_right_rejected(self, *args, **kwargs):
+        """The user declined this application in EMOTIV Launcher."""
+        msg = kwargs.get('message', '')
+        print(f"[access_right_rejected] {msg}", flush=True)
+        if self.bci_status_callback:
+            self.bci_status_callback("ACCESS_REJECTED:")
 
     def on_access_right_pending(self, *args, **kwargs):
         """Fired when requestAccess returns accessGranted=false.
@@ -414,6 +495,46 @@ class TelloDroneClient:
             self.c.setup_profile(name, 'save')
         if self.profile_admin_callback:
             self.profile_admin_callback({'type': 'reset', 'profile': name})
+
+    def finish_session(self, profile_name: str = ''):
+        """End a player's turn: bin their profile, then hand the headset back.
+
+        The order is the point. setupProfile is addressed to a headset, so
+        disconnecting first leaves the profile behind on the account — and these
+        used to run as two independent threads, which meant the delete and the
+        disconnect raced every time.
+        """
+        if profile_name:
+            self.delete_profile(profile_name)
+            time.sleep(0.6)
+        self.release_headset()
+
+    def release_headset(self, rescan: bool = True):
+        """Hand the headset back so the next player can pick it fresh.
+
+        Finishing a session used to leave the headset connected and the Cortex
+        session open, so the device list the next person landed on still showed
+        a headset that was in use by the previous run. Close the session, drop
+        the Bluetooth/USB link, then rescan so the list is rebuilt from what is
+        actually available.
+        """
+        try:
+            if getattr(self.c, 'session_id', ''):
+                self.c.close_session()
+                time.sleep(0.6)
+        except Exception as e:
+            print(f"[headset] close session failed: {e}", flush=True)
+
+        try:
+            self.c.disconnect_headset()
+            time.sleep(1.0)
+        except Exception as e:
+            print(f"[headset] disconnect failed: {e}", flush=True)
+
+        # A disconnected headset leaves no live streams behind it.
+        self.dev_labels = []
+        if rescan:
+            self.refresh_headsets()
 
     def refresh_headsets(self):
         """Re-scan for headsets, then ask for the list again.

@@ -16,9 +16,12 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QCheckBox, QGroupBox, QComboBox,
     QProgressBar, QScrollArea, QPlainTextEdit, QSlider, QStackedWidget,
-    QSizePolicy, QGridLayout, QTabWidget, QDialog
+    QSizePolicy, QGridLayout, QTabWidget, QDialog, QGraphicsOpacityEffect,
+    QListWidget, QListWidgetItem
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject, QRectF, QPointF
+from PyQt6.QtCore import (
+    Qt, QTimer, pyqtSignal, QThread, QObject, QRectF, QPointF, QSize
+)
 from PyQt6.QtGui import (
     QImage, QPixmap, QColor, QPalette, QPainter, QPen, QBrush,
     QLinearGradient, QRadialGradient, QPolygonF,
@@ -28,8 +31,9 @@ import random
 from config_manager import ConfigManager
 from app_paths import resource_path
 import leaderboard
+import applog
 import i18n
-from i18n import t, bind
+from i18n import t, bind, drone_action
 
 # Pages in the QStackedWidget, in the order setup_page_* adds them. These used
 # to be bare numbers scattered through the file, which is how the dashboard
@@ -58,9 +62,111 @@ SHOW_REAL_DRONE = False
 # Listing everyone who came before just turns into clutter nobody prunes.
 SHOW_PROFILE_LIST = False
 
+# The credentials form is not a step anybody should have to walk through: the
+# Cortex client id/secret are baked into cortex.py, so the screen collects
+# nothing the app actually uses. It stays registered (page indices are fixed)
+# and is still shown automatically if a connection never gets off the ground,
+# which is the only case where a human has anything useful to type.
+SHOW_AUTH_PAGE = False
+
+# Whether motion tuning is reachable at all. The head-tilt and deadzone sliders
+# are no longer built into any page; this decides whether the ⚙ Configurations
+# dialog that still carries them is offered. Tuning these mid-demo is how a
+# working setup gets broken between players, and Recenter covers the one
+# adjustment that actually helps. Values still come from config.json.
+SHOW_MOTION_TUNING = False
+
 # Length of one competitive ring run. Long enough to recover from a bad start,
 # short enough that a queue of people waiting their turn keeps moving.
 RUN_SECONDS = 60
+
+
+# Branding assets, all optional. Each is looked up once and cached; a missing
+# file simply means that piece of chrome is not drawn, so the app runs from a
+# fresh checkout before any artwork has been dropped in.
+BRAND_DIR = "assets"
+LOGO_FILE = "logo_white.png"          # company mark, light-on-dark, transparent
+HERO_FILE = "hero_drone.png"          # backdrop for the headset screen
+
+# The lockup stacks a drone mark over the wordmark, so it needs real height
+# before the smaller line is legible. These are the two sizes it is used at.
+LOGO_HEADER_H = 46
+LOGO_HERO_H = 132
+
+_ASSET_CACHE = {}
+
+
+def brand_pixmap(filename: str):
+    """QPixmap for a branding asset, or None when it is not installed."""
+    if filename in _ASSET_CACHE:
+        return _ASSET_CACHE[filename]
+
+    pixmap = None
+    candidates = [resource_path(BRAND_DIR, filename), resource_path(filename)]
+    # Case-insensitive fallback: the artwork arrives named however it was
+    # exported, and Windows does not care but a packaged Linux build would.
+    brand_dir = resource_path(BRAND_DIR)
+    if os.path.isdir(brand_dir):
+        wanted = filename.lower()
+        candidates += [os.path.join(brand_dir, f) for f in os.listdir(brand_dir)
+                       if f.lower() == wanted]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            loaded = QPixmap(candidate)
+            if not loaded.isNull():
+                pixmap = loaded
+                break
+    _ASSET_CACHE[filename] = pixmap
+    return pixmap
+
+
+# Headset artwork, keyed by the model prefix of a Cortex headset id such as
+# "INSIGHT2-A3D208D9" or "EPOCX-3B7C11A2". Longest prefix wins, so INSIGHT2
+# does not get swallowed by INSIGHT.
+# The box each headset photo is fitted into on a device row. The artwork runs
+# about 1.4:1, so the width binds and the height leaves a little air.
+PRODUCT_SHOT = QSize(96, 72)
+
+HEADSET_IMAGES = {
+    "INSIGHT": "insight.png",
+    "INSIGHT2": "insight.png",
+    "EPOC": "EPOC.png",
+    "EPOCX": "EPOC.png",
+    "EPOCPLUS": "EPOC.png",
+    "MN8": "MN8.png",
+}
+
+
+def headset_pixmap(headset_id: str):
+    """Product shot for a headset id, or None when the model is unknown."""
+    model = (headset_id or "").split("-")[0].upper()
+    if not model:
+        return None
+    # Exact model first, then the longest prefix that matches, so an
+    # unrecognised variant still shows the right family.
+    if model in HEADSET_IMAGES:
+        return brand_pixmap(HEADSET_IMAGES[model])
+    for key in sorted(HEADSET_IMAGES, key=len, reverse=True):
+        if model.startswith(key):
+            return brand_pixmap(HEADSET_IMAGES[key])
+    return None
+
+
+def logo_label(height: int = 26, opacity: float = 1.0):
+    """A QLabel carrying the company mark, or None if there is no logo file."""
+    pixmap = brand_pixmap(LOGO_FILE)
+    if pixmap is None:
+        return None
+    scaled = pixmap.scaledToHeight(
+        height, Qt.TransformationMode.SmoothTransformation)
+    label = QLabel()
+    label.setPixmap(scaled)
+    label.setFixedHeight(height)
+    if opacity < 1.0:
+        effect = QGraphicsOpacityEffect(label)
+        effect.setOpacity(opacity)
+        label.setGraphicsEffect(effect)
+    return label
 
 
 class EmittingStream(QObject):
@@ -110,6 +216,14 @@ QPushButton:disabled { background-color: #161b22; color: #6e7681; border-color: 
 QPushButton#primaryBtn { background-color: #238636; border: 1px solid #2ea043; color: #ffffff; }
 QPushButton#primaryBtn:hover { background-color: #2ea043; border-color: #3fb950; }
 QPushButton#primaryBtn:disabled { background-color: #1a4220; color: #6e7681; border-color: #1a4220; }
+QPushButton#heroBtn { background-color: #238636; border: 2px solid #3fb950; color: #ffffff;
+                      font-size: 22px; font-weight: bold; border-radius: 12px; letter-spacing: 1px; }
+QPushButton#heroBtn:hover { background-color: #2ea043; border-color: #56d364; }
+QPushButton#heroBtn:disabled { background-color: #16281b; color: #6e7681; border-color: #21372a; }
+QPushButton#ghostBtn { background-color: transparent; border: none; color: #6e7681;
+                       font-size: 12px; font-weight: normal; padding: 6px 2px; }
+QPushButton#ghostBtn:hover { color: #8b949e; text-decoration: underline; }
+QPushButton#ghostBtn:pressed { color: #c9d1d9; }
 QPushButton#dangerBtn { background-color: #da3633; border: 1px solid #f85149; color: #ffffff; }
 QPushButton#dangerBtn:hover { background-color: #f85149; }
 QPushButton#blueBtn { background-color: #1f6feb; border: 1px solid #388bfd; color: #ffffff; }
@@ -319,6 +433,12 @@ class DroneSimulatorWidget(QWidget):
         # that is the practice mode — but no rings spawn and nothing scores.
         self.run_active = False
         self.time_left = 0.0
+        # Run length, kept so overlays can work out how far in we are.
+        self._run_seconds = 0.0
+
+        # "Get Ready!" / 3 / 2 / 1 / "Go!" before a timed run. None when idle.
+        self.countdown_caption = None
+        self.countdown_value = None
 
         # Which action the user is recording right now; drives the on-screen cue.
         self.training_cue = None
@@ -370,6 +490,12 @@ class DroneSimulatorWidget(QWidget):
         self.training_cue = cue
         self.update()
 
+    def set_countdown(self, caption, value):
+        """Show (or clear, with None) the pre-run countdown over the scene."""
+        self.countdown_caption = caption
+        self.countdown_value = value
+        self.update()
+
     def start_run(self, seconds: int):
         """Begin a timed run: clean slate, first ring in the air."""
         self.score = 0
@@ -379,12 +505,17 @@ class DroneSimulatorWidget(QWidget):
         self.combo_flash = 0.0
         self.run_active = True
         self.time_left = float(seconds)
+        self._run_seconds = float(seconds)
+        self.countdown_caption = None
+        self.countdown_value = None
         self.reset_flight()
         self.spawn_coin()
         self.update()
 
     def end_run(self):
         """Stop scoring and clear the field, leaving the final score readable."""
+        self.countdown_caption = None
+        self.countdown_value = None
         self.run_active = False
         self.time_left = 0.0
         self.coins = []
@@ -806,6 +937,8 @@ class DroneSimulatorWidget(QWidget):
                                        alt=int(self.drone_y),
                                        spd=f"{self.speed:.1f}"))
             self._paint_timer(painter)
+            self._paint_controls_hint(painter)
+            self._paint_countdown(painter)
         else:
             # Training: altitude only, small and out of the way.
             font.setPointSize(10)
@@ -820,9 +953,97 @@ class DroneSimulatorWidget(QWidget):
             painter.setPen(QColor(255, 255, 255, 150))
             painter.drawText(self.width() - 210, 30, t("sim.esc_hint"))
 
+    def _paint_countdown(self, painter):
+        """Big centred 3 / 2 / 1 / Go! over a dimmed scene."""
+        if self.countdown_value is None:
+            return
+
+        painter.fillRect(self.rect(), QColor(2, 5, 10, 150))
+
+        font = painter.font()
+        font.setBold(True)
+
+        if self.countdown_caption:
+            font.setPointSize(20)
+            painter.setFont(font)
+            metrics = painter.fontMetrics()
+            painter.setPen(QColor("#8b949e"))
+            painter.drawText(
+                int(self.width() / 2 - metrics.horizontalAdvance(self.countdown_caption) / 2),
+                int(self.height() / 2 - 58), self.countdown_caption)
+
+        # "Go!" is a word and the digits are digits; both want to look like the
+        # same beat, so the size is chosen per-length rather than fixed.
+        text = str(self.countdown_value)
+        font.setPointSize(96 if len(text) <= 2 else 64)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        colour = QColor("#3fb950") if not text.isdigit() else QColor("#f1c40f")
+        painter.setPen(colour)
+        painter.drawText(
+            int(self.width() / 2 - metrics.horizontalAdvance(text) / 2),
+            int(self.height() / 2 + metrics.capHeight() / 2 + 10), text)
+
+    def _paint_controls_hint(self, painter):
+        """The two controls, along the bottom edge.
+
+        The side panel explaining them is not on screen in fullscreen, which is
+        exactly where a first-timer ends up. Fades out once the run is properly
+        under way so it is not competing with the rings for attention.
+        """
+        if self.countdown_value is not None:
+            return
+        if self.run_active and self.time_left is not None:
+            elapsed = self._run_seconds - self.time_left
+            if elapsed > 12:
+                return
+            alpha = 235 if elapsed < 8 else int(235 * (12 - elapsed) / 4)
+        else:
+            alpha = 235
+        if alpha <= 0:
+            return
+
+        forward = ""
+        if self.main_app is not None:
+            forward = self.main_app.forward_command_label()
+        lines = [t("howto.overlay_steer")]
+        if forward:
+            lines.append(t("howto.overlay_forward", action=forward))
+        if not self.run_active:
+            # Only before the clock starts: once rings are on screen, what they
+            # are for stops being a question.
+            lines.append(t("howto.overlay_rings"))
+
+        font = painter.font()
+        font.setPointSize(11)
+        font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+
+        width = max(metrics.horizontalAdvance(line) for line in lines) + 36
+        height = len(lines) * (metrics.height() + 4) + 16
+        x = self.width() / 2 - width / 2
+        bottom_reserved = 38 if not self.run_active else 16
+        y = self.height() - height - bottom_reserved
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(13, 17, 23, int(alpha * 0.62)))
+        painter.drawRoundedRect(QRectF(x, y, width, height), 12, 12)
+
+        painter.setPen(QColor(230, 237, 243, alpha))
+        for i, line in enumerate(lines):
+            painter.drawText(
+                int(self.width() / 2 - metrics.horizontalAdvance(line) / 2),
+                int(y + 16 + i * (metrics.height() + 4)),
+                line)
+
     def _paint_timer(self, painter):
         """Countdown clock, top-centre. Turns red and pulses in the last 10s."""
         if not self.run_active:
+            # The countdown has already taken over the screen; telling the
+            # player to press Start Run underneath it is stale advice.
+            if self.countdown_value is not None:
+                return
             painter.setPen(QColor(139, 148, 158, 190))
             font = painter.font()
             font.setPointSize(11)
@@ -880,7 +1101,7 @@ class DroneSimulatorWidget(QWidget):
         if alpha <= 0:
             return
 
-        text = t("sim.mental_command", action=action.upper())
+        text = t("sim.mental_command", action=drone_action(action).upper())
         font = painter.font()
         font.setPointSize(20)
         font.setBold(True)
@@ -919,6 +1140,11 @@ def clear_grid(grid):
         w = item.widget()
         if w is not None:
             i18n.unbind(w)
+            # setParent(None) before deleteLater: deletion is deferred to the
+            # event loop, and until it runs the widget is still drawn at its old
+            # place — rebuilding a grid straight away stacked the new rows on
+            # top of the old ones.
+            w.setParent(None)
             w.deleteLater()
 
 
@@ -955,6 +1181,518 @@ def add_board_row(grid, row, rank, entry, highlight):
                 style += "background-color: #2b2109;"
         lbl.setStyleSheet(style)
         grid.addWidget(lbl, row, col)
+
+
+def contact_percent(cq_list, overall_idx=None, keep_idx=None):
+    """Overall electrode contact, 0-100, or None when nothing has arrived yet.
+
+    Cortex ships an OVERALL column in the contact-quality stream that is already
+    a percentage; prefer it. Without it, average the per-electrode 0-4 grades.
+    Deliberately not `signal`, which is the wireless link to the dongle and says
+    nothing about whether the electrodes are touching anyone's head.
+    """
+    if not cq_list:
+        return None
+    if overall_idx is not None and overall_idx < len(cq_list):
+        try:
+            return max(0.0, min(100.0, float(cq_list[overall_idx])))
+        except (TypeError, ValueError):
+            pass
+    grades = ([cq_list[i] for i in keep_idx if i < len(cq_list)]
+              if keep_idx is not None else list(cq_list))
+    if not grades:
+        return None
+    return max(0.0, min(100.0, sum(grades) / len(grades) / 4.0 * 100.0))
+
+
+def contact_grade(percent):
+    """(translation key, colour) for a contact percentage. Same bands as
+    emotiv-brain-light, so the two apps agree on what "good" means."""
+    if percent is None:
+        return "quality.unknown_state", "#8b949e"
+    if percent >= 80:
+        return "quality.good", "#3fb950"
+    if percent >= 50:
+        return "quality.fair", "#e3a01a"
+    return "quality.poor", "#da3633"
+
+
+def congratulation(rank: int, total: int):
+    """Message, colour and whether this finish deserves confetti.
+
+    Shared by the windowed result page and the fullscreen one so a player is
+    congratulated in the same words either way. Top three gets the confetti;
+    everyone else still gets told where they came.
+    """
+    if rank <= 0:
+        return "", "#8b949e", False
+    if rank == 1:
+        key = "game.congrats_only" if total <= 1 else "game.congrats_first"
+        return t(key), "#f1c40f", True
+    if rank <= 3:
+        return t("game.congrats_podium", rank=i18n.ordinal(rank)), "#f1c40f", True
+    return (t("game.congrats_ranked", rank=i18n.ordinal(rank), total=total),
+            "#58a6ff", False)
+
+
+class HeroBackdrop(QWidget):
+    """A page background: artwork bottom-right, dimmed, behind its content.
+
+    Used on the headset screen so the first thing on screen says "drone
+    simulator" rather than "configuration form". Draws nothing at all when the
+    artwork is missing, so the page still works without it.
+    """
+
+    def __init__(self, filename: str, parent=None, opacity: float = 0.16,
+                 coverage: float = 0.88):
+        super().__init__(parent)
+        self.pixmap = brand_pixmap(filename)
+        self.opacity = opacity
+        self.coverage = coverage
+
+    def paintEvent(self, event):
+        if self.pixmap is None or self.width() < 2 or self.height() < 2:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setOpacity(self.opacity)
+
+        # Fit inside the page rather than cropping: the artwork is symmetric,
+        # so losing one side to a bleed looks like a mistake rather than a
+        # deliberate crop. Centred, and never upscaled past its own size.
+        avail_w = int(self.width() * self.coverage)
+        avail_h = int(self.height() * self.coverage)
+        scaled = self.pixmap.scaled(
+            min(avail_w, self.pixmap.width() * 2),
+            min(avail_h, self.pixmap.height() * 2),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+        painter.drawPixmap((self.width() - scaled.width()) // 2,
+                           (self.height() - scaled.height()) // 2,
+                           scaled)
+
+
+class ConfettiOverlay(QWidget):
+    """A burst of falling confetti over whatever widget it is parented to.
+
+    Used to mark a podium finish. Transparent to mouse events so the buttons
+    underneath stay clickable, and it tracks the parent's size through an event
+    filter rather than needing the parent to know it exists.
+    """
+
+    COLOURS = ("#f1c40f", "#58a6ff", "#3fb950", "#e3a01a", "#da3633", "#bc8cff")
+    DURATION = 5.0          # seconds of falling before it stops on its own
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.pieces = []
+        self._started = 0.0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        parent.installEventFilter(self)
+        self.hide()
+
+    def eventFilter(self, obj, event):
+        if obj is self.parent() and event.type() == event.Type.Resize:
+            self.setGeometry(self.parent().rect())
+        return False
+
+    def start(self, count: int = 140):
+        parent = self.parent()
+        if parent is None:
+            return
+        self.setGeometry(parent.rect())
+        width = max(1, self.width())
+
+        self.pieces = []
+        for i in range(count):
+            # Deterministic-ish spread across the width, then jittered, so the
+            # burst covers the screen instead of clumping.
+            self.pieces.append({
+                "x": random.uniform(0, width),
+                "y": random.uniform(-self.height() * 0.6, 0),
+                "vx": random.uniform(-40, 40),
+                "vy": random.uniform(90, 240),
+                "w": random.uniform(5, 11),
+                "h": random.uniform(8, 16),
+                "angle": random.uniform(0, 360),
+                "spin": random.uniform(-220, 220),
+                "colour": QColor(random.choice(self.COLOURS)),
+            })
+        self._started = time.time()
+        self.show()
+        self.raise_()
+        self.timer.start(33)
+
+    def stop(self):
+        self.timer.stop()
+        self.pieces = []
+        self.hide()
+
+    def _tick(self):
+        dt = 0.033
+        elapsed = time.time() - self._started
+        fading = elapsed > self.DURATION
+        height = self.height()
+
+        for p in self.pieces:
+            p["vy"] += 90 * dt                 # gravity
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            p["angle"] += p["spin"] * dt
+
+        self.pieces = [p for p in self.pieces if p["y"] < height + 30]
+        if fading or not self.pieces:
+            self.stop()
+            return
+        self.update()
+
+    def paintEvent(self, event):
+        if not self.pieces:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for p in self.pieces:
+            painter.save()
+            painter.translate(p["x"], p["y"])
+            painter.rotate(p["angle"])
+            painter.setBrush(p["colour"])
+            painter.drawRoundedRect(
+                QRectF(-p["w"] / 2, -p["h"] / 2, p["w"], p["h"]), 2, 2)
+            painter.restore()
+
+
+# Electrode positions in the international 10-20 system (and the 10-10
+# extensions the EMOTIV headsets actually use), as unit-circle coordinates with
+# the nose at +y and the right ear at +x. Drawing a sensor where it really sits
+# is the difference between "S2 is red" and "the one above your left eyebrow
+# needs reseating" — the second is something a player can act on.
+ELECTRODE_POSITIONS = {
+    "Nz":  (0.00,  1.05),
+    "Fp1": (-0.31, 0.95), "Fpz": (0.00, 1.00), "Fp2": (0.31, 0.95),
+    "AF7": (-0.59, 0.81), "AF3": (-0.33, 0.77), "AFz": (0.00, 0.75),
+    "AF4": (0.33,  0.77), "AF8": (0.59, 0.81),
+    "F7":  (-0.81, 0.59), "F5": (-0.64, 0.58), "F3": (-0.45, 0.55),
+    "F1":  (-0.23, 0.52), "Fz": (0.00, 0.50), "F2": (0.23, 0.52),
+    "F4":  (0.45,  0.55), "F6": (0.64, 0.58), "F8": (0.81, 0.59),
+    "FT7": (-0.95, 0.31), "FC5": (-0.72, 0.29), "FC3": (-0.49, 0.27),
+    "FC1": (-0.25, 0.26), "FCz": (0.00, 0.25), "FC2": (0.25, 0.26),
+    "FC4": (0.49,  0.27), "FC6": (0.72, 0.29), "FT8": (0.95, 0.31),
+    "T7":  (-1.00, 0.00), "T3": (-1.00, 0.00), "C5": (-0.75, 0.00),
+    "C3":  (-0.50, 0.00), "C1": (-0.25, 0.00), "Cz": (0.00, 0.00),
+    "C2":  (0.25,  0.00), "C4": (0.50, 0.00), "C6": (0.75, 0.00),
+    "T8":  (1.00,  0.00), "T4": (1.00, 0.00),
+    "TP7": (-0.95, -0.31), "CP5": (-0.72, -0.29), "CP3": (-0.49, -0.27),
+    "CP1": (-0.25, -0.26), "CPz": (0.00, -0.25), "CP2": (0.25, -0.26),
+    "CP4": (0.49, -0.27), "CP6": (0.72, -0.29), "TP8": (0.95, -0.31),
+    "P7":  (-0.81, -0.59), "T5": (-0.81, -0.59), "P5": (-0.64, -0.58),
+    "P3":  (-0.45, -0.55), "P1": (-0.23, -0.52), "Pz": (0.00, -0.50),
+    "P2":  (0.23, -0.52), "P4": (0.45, -0.55), "P6": (0.64, -0.58),
+    "P8":  (0.81, -0.59), "T6": (0.81, -0.59),
+    "PO7": (-0.59, -0.81), "PO3": (-0.33, -0.77), "POz": (0.00, -0.75),
+    "PO4": (0.33, -0.77), "PO8": (0.59, -0.81),
+    "O1":  (-0.31, -0.95), "Oz": (0.00, -1.00), "O2": (0.31, -0.95),
+    # Reference / mastoid electrodes sit on the ear, just outside the outline.
+    "A1":  (-1.14, 0.00), "M1": (-1.14, 0.00),
+    "A2":  (1.14,  0.00), "M2": (1.14, 0.00),
+}
+
+# Contact quality 0-4, matching the colours used elsewhere on the EQ screen.
+CQ_COLOURS = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
+
+
+class SensorHeadMapWidget(QWidget):
+    """Contact quality drawn on a head, seen from above with the nose up."""
+
+    def __init__(self, parent=None, compact: bool = False):
+        super().__init__(parent)
+        self.compact = compact
+        if not compact:
+            self.setMinimumSize(300, 300)
+            self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                               QSizePolicy.Policy.Expanding)
+        self.sensors = []          # [(label, cq_int)] in stream order
+
+    def set_sensors(self, labels, values):
+        """Pair the stream's electrode names with its latest quality values."""
+        pairs = []
+        for i, value in enumerate(values):
+            label = labels[i] if i < len(labels) else f"S{i}"
+            try:
+                cq = int(value)
+            except (TypeError, ValueError):
+                cq = 0
+            pairs.append((str(label), max(0, min(4, cq))))
+        self.sensors = pairs
+        self.update()
+
+    def clear(self):
+        self.sensors = []
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Width usually binds first (the panel is tall and narrow); the height
+        # term stops the head overflowing when it does not. Sat slightly high so
+        # off-montage sensors have room on the row underneath.
+        if self.compact:
+            radius = min(self.width(), self.height()) * 0.36
+            cx, cy = self.width() / 2, self.height() * 0.54
+        else:
+            radius = min(self.width() * 0.40, self.height() * 0.36)
+            cx = self.width() / 2
+            cy = self.height() * 0.46
+
+        self._paint_head(painter, cx, cy, radius)
+
+        if not self.sensors:
+            if self.compact:
+                return
+            painter.setPen(QColor("#6e7681"))
+            font = painter.font(); font.setPointSize(11); painter.setFont(font)
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                             t("eq.headmap_waiting"))
+            return
+
+        # Anything the table does not know about still has to appear somewhere,
+        # or a headset with an unusual channel would silently lose a sensor.
+        unknown = [s for s in self.sensors if s[0] not in ELECTRODE_POSITIONS]
+        for i, (label, cq) in enumerate(unknown):
+            step = self.width() / (len(unknown) + 1)
+            self._paint_sensor(painter, step * (i + 1),
+                               cy + radius * 1.42, label, cq, 0.0, 1.0)
+
+        for label, cq in self.sensors:
+            position = ELECTRODE_POSITIONS.get(label)
+            if position is None:
+                continue
+            x, y = position
+            # Push the caption away from the centre of the head, so a dense
+            # montage labels outwards instead of writing over its neighbours.
+            length = math.hypot(x, y)
+            if length < 0.01:
+                ux, uy = 0.0, 1.0
+            else:
+                ux, uy = x / length, -y / length
+            self._paint_sensor(painter, cx + x * radius, cy - y * radius,
+                               label, cq, ux, uy)
+
+    def _paint_head(self, painter, cx, cy, radius):
+        outline = QPen(QColor("#30363d"), 2)
+        painter.setPen(outline)
+        painter.setBrush(QColor("#0d1117"))
+
+        # Nose: a wedge at the top, so "which way am I facing" needs no caption.
+        nose = QPolygonF([
+            QPointF(cx - radius * 0.13, cy - radius * 0.99),
+            QPointF(cx, cy - radius * 1.20),
+            QPointF(cx + radius * 0.13, cy - radius * 0.99),
+        ])
+        painter.drawPolygon(nose)
+
+        for side in (-1, 1):
+            painter.drawEllipse(
+                QRectF(cx + side * radius * 1.0 - radius * 0.07,
+                       cy - radius * 0.20, radius * 0.16, radius * 0.40))
+
+        painter.setBrush(QColor("#0d1117"))
+        painter.drawEllipse(QPointF(cx, cy), radius, radius)
+
+        # Midlines, faint: they make the left/right split readable at a glance.
+        painter.setPen(QPen(QColor("#21262d"), 1))
+        painter.drawLine(int(cx - radius), int(cy), int(cx + radius), int(cy))
+        painter.drawLine(int(cx), int(cy - radius), int(cx), int(cy + radius))
+
+        if self.compact:
+            return
+        font = painter.font(); font.setPointSize(8); font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#6e7681"))
+        metrics = painter.fontMetrics()
+        front = t("eq.headmap_front")
+        painter.drawText(int(cx - metrics.horizontalAdvance(front) / 2),
+                         int(cy - radius * 1.28), front)
+
+    def _paint_sensor(self, painter, x, y, label, cq, ux=0.0, uy=1.0):
+        colour = QColor(CQ_COLOURS.get(cq, "#8b949e"))
+        dot = min(self.width(), self.height()) * (0.10 if self.compact else 0.045)
+
+        # Good contacts get a soft halo; bad ones just read as a flat red dot.
+        if cq >= 3:
+            glow = QRadialGradient(QPointF(x, y), dot * 2.1)
+            glow.setColorAt(0.0, QColor(colour.red(), colour.green(), colour.blue(), 110))
+            glow.setColorAt(1.0, QColor(colour.red(), colour.green(), colour.blue(), 0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(glow))
+            painter.drawEllipse(QPointF(x, y), dot * 2.1, dot * 2.1)
+
+        painter.setPen(QPen(QColor("#0d1117"), 2))
+        painter.setBrush(colour)
+        painter.drawEllipse(QPointF(x, y), dot, dot)
+
+        if self.compact:
+            return
+
+        font = painter.font(); font.setPointSize(8); font.setBold(True)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(label)
+        gap = dot + 4
+        lx = x + ux * (gap + width / 2)
+        ly = y + uy * (gap + metrics.height() / 2)
+
+        # A plate behind the text keeps it legible where a label ends up over
+        # the head outline or close to another electrode.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(13, 17, 23, 205))
+        painter.drawRoundedRect(
+            QRectF(lx - width / 2 - 3, ly - metrics.height() / 2,
+                   width + 6, metrics.height()), 3, 3)
+        painter.setPen(QColor("#e6edf3"))
+        painter.drawText(int(lx - width / 2),
+                         int(ly + metrics.height() / 2 - metrics.descent()), label)
+
+
+class ReconnectBanner(QWidget):
+    """Full-window notice while a dropped headset is being chased.
+
+    Covers whatever page is up rather than living on one of them, because a
+    headset can drop during training, during a run, or while idle, and the
+    message is the same in every case.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setObjectName("reconnectBanner")
+        self.setStyleSheet(
+            "#reconnectBanner { background-color: rgba(2, 5, 10, 232); }")
+
+        box = QVBoxLayout(self)
+        box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.setSpacing(10)
+
+        self.title = bind(QLabel(), "reconnect.title")
+        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title.setStyleSheet(
+            "font-size: 26px; font-weight: bold; color: #e3a01a;")
+        box.addWidget(self.title)
+
+        self.detail = QLabel()
+        self.detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.detail.setWordWrap(True)
+        self.detail.setStyleSheet("font-size: 15px; color: #c9d1d9;")
+        box.addWidget(self.detail)
+
+        self.countdown = QLabel()
+        self.countdown.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.countdown.setStyleSheet("font-size: 14px; color: #8b949e;")
+        box.addWidget(self.countdown)
+
+        self.hide()
+
+    def show_for(self, headset_id: str, seconds: int):
+        bind(self.detail, "reconnect.detail", headset=headset_id or "—")
+        self.set_remaining(seconds)
+        if self.parentWidget() is not None:
+            self.setGeometry(self.parentWidget().rect())
+        self.show()
+        self.raise_()
+
+    def set_remaining(self, seconds: float):
+        bind(self.countdown, "reconnect.remaining",
+             seconds=max(0, int(round(seconds))))
+
+
+class DevicePill(QWidget):
+    """Which headset is flying this, and whether its electrodes are on.
+
+    Modelled on the device pill in emotiv-brain-light: a small head map for
+    where the problem is, one number for how bad it is, in the colours this
+    project already uses. It lives on the flight screen because that is where
+    a contact going bad shows up as the drone quietly not responding.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 6, 12, 6)
+        layout.setSpacing(10)
+
+        self.head = SensorHeadMapWidget(compact=True)
+        self.head.setFixedSize(40, 40)
+        layout.addWidget(self.head)
+
+        column = QVBoxLayout()
+        column.setSpacing(0)
+        self.name_lbl = QLabel("—")
+        self.name_lbl.setStyleSheet(
+            "font-size: 12px; font-weight: bold; color: #e6edf3;")
+        column.addWidget(self.name_lbl)
+        self.grade_lbl = bind(QLabel(), "quality.unknown_state")
+        self.grade_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
+        column.addWidget(self.grade_lbl)
+        layout.addLayout(column)
+
+        self.badge = QLabel("—")
+        self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.badge.setFixedWidth(48)
+        layout.addWidget(self.badge)
+
+        # Headset battery. A run dying halfway because the headset was at 4%
+        # is not something anyone should discover mid-flight.
+        self.battery_lbl = QLabel("—")
+        self.battery_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.battery_lbl.setFixedWidth(56)
+        layout.addWidget(self.battery_lbl)
+        self.set_battery(None)
+
+        # Scoped by object name, or the frame is inherited by every child
+        # label; WA_StyledBackground so a plain QWidget honours the fill.
+        self.setObjectName("devicePill")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "#devicePill { background-color: #0d1117;"
+            " border: 1px solid #30363d; border-radius: 10px; }")
+        self._paint_badge(None)
+
+    def set_device(self, headset_id: str):
+        self.name_lbl.setText(headset_id or "—")
+
+    def set_battery(self, percent):
+        """Headset charge, 0-100, or None when the headset has not said yet."""
+        if percent is None:
+            self.battery_lbl.setText("—")
+            colour = "#6e7681"
+        else:
+            percent = max(0, min(100, int(percent)))
+            icon = "🔋" if percent > 20 else "🪫"
+            self.battery_lbl.setText(f"{icon}{percent}%")
+            colour = ("#3fb950" if percent > 40
+                      else "#e3a01a" if percent > 20 else "#da3633")
+        self.battery_lbl.setStyleSheet(
+            f"font-size: 12px; font-weight: bold; color: {colour};")
+
+    def set_quality(self, percent, cq_list, labels, keep_idx):
+        grades = ([cq_list[i] for i in keep_idx if i < len(cq_list)]
+                  if keep_idx is not None else list(cq_list or []))
+        self.head.set_sensors(labels or [], grades)
+        key, _ = contact_grade(percent)
+        bind(self.grade_lbl, key)
+        self._paint_badge(percent)
+
+    def _paint_badge(self, percent):
+        key, colour = contact_grade(percent)
+        self.badge.setText("—" if percent is None else f"{int(round(percent))}%")
+        self.badge.setStyleSheet(
+            f"font-size: 13px; font-weight: bold; color: {colour};"
+            f"border: 1px solid {colour}; border-radius: 8px; padding: 3px 4px;")
 
 
 class BrainMapWidget(QWidget):
@@ -1294,7 +2032,7 @@ class FullscreenHUDWidget(QWidget):
         if action and (now - action_time) < 2.0:
             alpha = int(255 * (1.0 - (now - action_time) / 2.0))
             if alpha > 0:
-                text = f"*** {action.upper()} ***"
+                text = f"*** {drone_action(action).upper()} ***"
                 font.setPointSize(20)
                 painter.setFont(font)
                 metrics = painter.fontMetrics()
@@ -1325,12 +2063,21 @@ class TelloControllerApp(QMainWindow):
     headsets_signal = pyqtSignal(list)
     training_signal = pyqtSignal(str)
     dev_data_signal = pyqtSignal(int, list)
+    dev_labels_signal = pyqtSignal(list)
+    # Run a callable on the GUI thread. QTimer.singleShot(0, fn) called from a
+    # worker thread creates the timer on a thread with no event loop, so it
+    # never fires — which is how the Refresh button ended up stuck disabled
+    # after its first press.
+    ui_task_signal = pyqtSignal(object)
     mc_config_signal = pyqtSignal(dict)
     brainmap_signal = pyqtSignal(list)
     profile_admin_signal = pyqtSignal(dict)
     
     def __init__(self):
         super().__init__()
+        # Idempotent: main() starts this too, but the window is also built
+        # directly by tests and tooling, and those runs are worth logging.
+        applog.start()
         self.resize(1100, 820)
         self.config = ConfigManager.load_config()
         # Language has to be settled before any widget is built, so the first
@@ -1351,6 +2098,8 @@ class TelloControllerApp(QMainWindow):
         self.headsets_signal.connect(self._populate_headsets)
         self.training_signal.connect(self._on_training_update)
         self.dev_data_signal.connect(self._on_dev_data_update)
+        self.dev_labels_signal.connect(self._on_dev_labels)
+        self.ui_task_signal.connect(lambda fn: fn())
         self.mc_config_signal.connect(self._on_mc_config_update)
         self.brainmap_signal.connect(self._on_brain_map)
         self.profile_admin_signal.connect(self._on_profile_admin)
@@ -1360,10 +2109,30 @@ class TelloControllerApp(QMainWindow):
         self.run_timer = QTimer(self)
         self.run_timer.timeout.connect(self._on_run_tick)
         self._run_deadline = 0.0
+
+        # Pre-run countdown, so nobody's timed round starts while they are
+        # still looking at the button they just pressed.
+        self.run_countdown_timer = QTimer(self)
+        self.run_countdown_timer.timeout.connect(self._on_countdown_step)
+        self._countdown_left = 0
+
+        # Chasing a headset that dropped out mid-session.
+        self.reconnect_timer = QTimer(self)
+        self.reconnect_timer.timeout.connect(self._on_reconnect_tick)
+        self._reconnect_deadline = 0.0
+        self._lost_headset = ""
+        self._run_paused = False
         self.current_player = ""
         self.current_entry = None
         self.mc_active_actions = []
         self.mc_sensitivities = []
+        self.dev_sensor_labels = []
+        self._dev_keep_idx = None
+        self._dev_overall_idx = None
+        self.headset_rows = []
+        # Every DevicePill on every page; they all show the same headset, so
+        # they are driven together rather than each page wiring its own.
+        self.all_pills = []
         self._board_return_page = PAGE_TEST
 
         self.stdout_stream = EmittingStream()
@@ -1383,6 +2152,11 @@ class TelloControllerApp(QMainWindow):
         main_layout = QVBoxLayout(central)
 
         header = QHBoxLayout()
+        # Slightly held back: it is on every page, including the simulator,
+        # and should read as a mark in the corner rather than as content.
+        brand = logo_label(height=LOGO_HEADER_H, opacity=0.75)
+        if brand is not None:
+            header.addWidget(brand)
         header.addStretch()
 
         self.lang_lbl = QLabel()
@@ -1403,12 +2177,18 @@ class TelloControllerApp(QMainWindow):
         bind(self.settings_btn, "btn.settings")
         self.settings_btn.setObjectName("blueBtn")
         self.settings_btn.clicked.connect(self.show_settings)
+        # The Configurations dialog is almost entirely motion-sensor tuning and
+        # real-drone mappings; it follows the same flag as the inline sliders.
+        self.settings_btn.setVisible(SHOW_MOTION_TUNING or SHOW_REAL_DRONE)
         header.addWidget(self.settings_btn)
         main_layout.addLayout(header)
 
         self.stacked_widget = QStackedWidget()
         self.stacked_widget.currentChanged.connect(self._on_page_changed)
         main_layout.addWidget(self.stacked_widget)
+
+        # Parented to the window, so it covers whichever page is showing.
+        self.reconnect_banner = ReconnectBanner(self)
 
         self.setup_page_auth()
         self.setup_page_headset()
@@ -1422,6 +2202,11 @@ class TelloControllerApp(QMainWindow):
         self.setup_page_brainmap()
         self.setup_page_gameover()
         self.setup_page_leaderboard()
+
+        # Never open on a page that is switched off. Auto-connect moves here
+        # anyway; this covers the case where it never runs.
+        if not SHOW_AUTH_PAGE:
+            self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
 
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
@@ -1445,14 +2230,90 @@ class TelloControllerApp(QMainWindow):
         be handed between people, so every extra step gets paid repeatedly. The
         form stays one click away via 'Back to Auth' on the headset screen.
         """
-        if not self.auto_connect_cb.isChecked():
-            return
         if self.simulate_cb.isChecked():
             return
-        if not self._credentials_ready():
-            return
+        if SHOW_AUTH_PAGE:
+            if not self.auto_connect_cb.isChecked():
+                return
+            if not self._credentials_ready():
+                return
+        else:
+            # cortex.py supplies its own client id/secret, so a missing pair in
+            # config.json is not a reason to stop — and with no form on screen,
+            # stopping would strand the user on a page they cannot see.
+            self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
         self.log(t("log.auto_connecting"))
         self._start_bci()
+
+    def _make_abandon_button(self) -> QPushButton:
+        """Way out of training, back to the device list.
+
+        Training is the longest part of the flow and the easiest to get stuck
+        in — a bad take, the wrong headset, or simply the wrong person sitting
+        down. There was no exit from these pages at all.
+        """
+        button = bind(QPushButton(), "train.abandon")
+        bind(button, "train.abandon.tip", "setToolTip")
+        # Present but quiet: this throws away the training in progress, so it
+        # should never catch the eye of someone reaching for Accept. Flat and
+        # grey, and it only picks up contrast on hover.
+        button.setObjectName("ghostBtn")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(self._abandon_training)
+        return button
+
+    def _abandon_training(self):
+        """Stop whatever take is running and hand the headset back."""
+        for name in ("countdown_timer", "recording_timer"):
+            timer = getattr(self, name, None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        if getattr(self, "countdown_overlay", None) is not None:
+            self.countdown_overlay.hide()
+        if getattr(self, "push_anim_timer", None) is not None:
+            self.push_anim_timer.stop()
+
+        self.log(t("log.training_abandoned"))
+        profile = (self.config.get("profile_name") or "").strip()
+        self.config["profile_name"] = ""
+        ConfigManager.save_config(self.config)
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
+        self._release_headset(profile)
+
+    def _new_device_pill(self) -> "DevicePill":
+        """A pill wired into the shared update path."""
+        pill = DevicePill()
+        self.all_pills.append(pill)
+        return pill
+
+    def _pills_device(self, headset_id: str):
+        for pill in self.all_pills:
+            pill.set_device(headset_id)
+
+    def _pills_quality(self, percent, cq_list, labels, keep_idx):
+        for pill in self.all_pills:
+            pill.set_quality(percent, cq_list, labels, keep_idx)
+
+    def _pills_battery(self, percent):
+        for pill in self.all_pills:
+            pill.set_battery(percent)
+
+    def forward_command_label(self) -> str:
+        """Translated name of the thought that flies the drone forward.
+
+        Read from the live mapping rather than hard-coded to "Push": which
+        command drives forward is configurable, and telling a player to think
+        the wrong word is worse than saying nothing. Empty when nothing is
+        mapped to a forward movement.
+        """
+        for mapping in (self.config.get("mental_mappings") or []):
+            if mapping.get("action") == "MoveForward":
+                command = (mapping.get("command") or "").strip()
+                if not command:
+                    return ""
+                key = f"action.{command}"
+                return t(key) if i18n.has(key) else command.capitalize()
+        return ""
 
     def _refresh_player_name(self):
         """Show whichever profile is loaded — that is the name the board gets."""
@@ -1479,8 +2340,10 @@ class TelloControllerApp(QMainWindow):
             # until it has been loaded — so ask on arrival, not at startup.
             threading.Thread(target=self.drone_client.get_mc_config, daemon=True).start()
 
-        if index != PAGE_TEST and self.run_timer.isActive():
+        if index != PAGE_TEST and (self.run_timer.isActive()
+                                   or self.run_countdown_timer.isActive()):
             self.run_timer.stop()
+            self.run_countdown_timer.stop()
             self.drone_sim.end_run()
             self.start_run_btn.setEnabled(True)
             bind(self.start_run_btn, "game.start")
@@ -1500,7 +2363,7 @@ class TelloControllerApp(QMainWindow):
         """Redo the bits that bind() cannot reach: combo entries and repaints."""
         # A combo showing a placeholder holds no real data, so its single item
         # is safe to rewrite. _placeholder_key says which message is up.
-        for combo in (self.headset_combo, self.profile_combo):
+        for combo in (self.profile_combo,):
             key = getattr(combo, "_placeholder_key", None)
             if key and combo.count() == 1:
                 combo.setItemText(0, t(key))
@@ -1520,6 +2383,36 @@ class TelloControllerApp(QMainWindow):
         title = QLabel(); title.setObjectName("titleLabel")
         bind(title, "auth.title")
         c_layout.addWidget(title)
+
+        intro = bind(QLabel(), "auth.intro")
+        intro.setWordWrap(True)
+        intro.setStyleSheet("font-size: 13px; color: #c9d1d9;")
+        c_layout.addWidget(intro)
+
+        # What actually went wrong, when Cortex told us.
+        self.auth_reason_lbl = QLabel()
+        self.auth_reason_lbl.setWordWrap(True)
+        self.auth_reason_lbl.setVisible(False)
+        self.auth_reason_lbl.setStyleSheet(
+            "font-size: 12px; color: #f0883e; background-color: #1f1300;"
+            "border: 1px solid #e3a01a; border-radius: 6px; padding: 8px;")
+        c_layout.addWidget(self.auth_reason_lbl)
+
+        checks_group = QGroupBox()
+        bind(checks_group, "auth.checks_group", "setTitle")
+        checks_layout = QVBoxLayout(checks_group)
+        for key in ("auth.check_launcher", "auth.check_approved"):
+            line = bind(QLabel(), key)
+            line.setWordWrap(True)
+            line.setStyleSheet("font-size: 13px; color: #e6edf3; padding: 2px 0;")
+            checks_layout.addWidget(line)
+
+        self.auth_retry_btn = bind(QPushButton(), "auth.retry")
+        self.auth_retry_btn.setObjectName("primaryBtn")
+        self.auth_retry_btn.setMinimumHeight(40)
+        self.auth_retry_btn.clicked.connect(self._retry_connection)
+        checks_layout.addWidget(self.auth_retry_btn)
+        c_layout.addWidget(checks_group)
 
         auth_group = QGroupBox()
         bind(auth_group, "auth.group", "setTitle")
@@ -1547,6 +2440,15 @@ class TelloControllerApp(QMainWindow):
         auth_layout.addWidget(self.connect_bci_btn)
         c_layout.addWidget(auth_group)
 
+        # Where to find the log when reporting a problem. Printed at startup
+        # too, but nobody reads a console they cannot see in a packaged build.
+        log_hint = QLabel(t("auth.log_file", path=applog.log_path()))
+        log_hint.setWordWrap(True)
+        log_hint.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        log_hint.setStyleSheet("font-size: 11px; color: #6e7681;")
+        c_layout.addWidget(log_hint)
+
         c_layout.addWidget(bind(QLabel(), "auth.logs"))
         self.bci_log_terminal = QPlainTextEdit()
         self.bci_log_terminal.setReadOnly(True)
@@ -1558,62 +2460,97 @@ class TelloControllerApp(QMainWindow):
         self.stacked_widget.addWidget(page)
 
     def setup_page_headset(self):
-        page = QWidget()
+        # Step one, and the first thing anybody sees. The drone backdrop is
+        # here to say what this application is before the user has read a word.
+        page = HeroBackdrop(HERO_FILE)
         layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Stretch above and below rather than layout.setAlignment(): setting
+        # alignment on a top-level layout does not stop its item from being
+        # stretched, which left the group box with a tall empty well under the
+        # device list.
+        layout.addStretch(1)
 
         container = QWidget(); container.setFixedWidth(600)
         c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
 
+        mark = logo_label(height=LOGO_HERO_H)
+        if mark is not None:
+            c_layout.addWidget(mark, alignment=Qt.AlignmentFlag.AlignHCenter)
+
         title = QLabel(); title.setObjectName("titleLabel")
         bind(title, "headset.title")
+        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         c_layout.addWidget(title)
+
+        tagline = bind(QLabel(), "headset.tagline")
+        tagline.setWordWrap(True)
+        tagline.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        tagline.setStyleSheet("font-size: 13px; color: #8b949e;")
+        c_layout.addWidget(tagline)
 
         self.headset_group = QGroupBox()
         bind(self.headset_group, "headset.group", "setTitle")
         headset_layout = QVBoxLayout(self.headset_group)
         headset_hdr = QHBoxLayout()
-        headset_hdr.addWidget(bind(QLabel(), "headset.label"))
+        self.headset_count_lbl = bind(QLabel(), "headset.awaiting_auth")
+        self.headset_count_lbl.setStyleSheet("font-size: 12px; color: #8b949e;")
+        headset_hdr.addWidget(self.headset_count_lbl)
         headset_hdr.addStretch()
         self.refresh_headsets_btn = bind(QPushButton(), "headset.refresh")
         bind(self.refresh_headsets_btn, "headset.refresh.tip", "setToolTip")
-        self.refresh_headsets_btn.setFixedWidth(90)
+        # Not setFixedWidth: "🔄 Refresh" clipped to "Refres", and the
+        # translations are longer still.
+        self.refresh_headsets_btn.setMinimumWidth(110)
         self.refresh_headsets_btn.clicked.connect(self._refresh_headsets)
         headset_hdr.addWidget(self.refresh_headsets_btn)
         headset_layout.addLayout(headset_hdr)
 
-        self.headset_combo = QComboBox()
-        self.headset_combo._placeholder_key = "headset.awaiting_auth"
-        self.headset_combo.addItem(t("headset.awaiting_auth"))
-        self.headset_combo.setStyleSheet(
-            "QComboBox { background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
-            "padding: 8px 12px; color: #8b949e; font-size: 14px; }"
-            "QComboBox:enabled { color: #e6edf3; }"
-            "QComboBox QAbstractItemView { background-color: #161b22; color: #e6edf3;"
-            "selection-background-color: #1f6feb; border: 1px solid #30363d; }"
+        # A list, not a dropdown: with a handful of headsets in the room the
+        # useful information is how many there are and what state each is in,
+        # and a collapsed combo hides exactly that until you click it.
+        self.headset_list = QListWidget()
+        self.headset_list.setMinimumHeight(96)
+        self.headset_list.setStyleSheet(
+            "QListWidget { background-color: #0d1117; border: 1px solid #30363d;"
+            " border-radius: 6px; padding: 4px; color: #e6edf3; font-size: 14px; }"
+            "QListWidget::item { padding: 9px 10px; border-radius: 5px; }"
+            "QListWidget::item:selected { background-color: #1f6feb; color: #ffffff; }"
+            "QListWidget::item:hover:!selected { background-color: #161b22; }"
         )
-        headset_layout.addWidget(self.headset_combo)
-        
-        self.connect_headset_btn = QPushButton()
-        bind(self.connect_headset_btn, "headset.connect")
-        self.connect_headset_btn.setObjectName("blueBtn")
-        self.connect_headset_btn.clicked.connect(self._connect_headset)
-        headset_layout.addWidget(self.connect_headset_btn)
+        self.headset_list.setSelectionMode(
+            QListWidget.SelectionMode.NoSelection)
+        self.headset_list.itemDoubleClicked.connect(
+            lambda item: self._connect_headset(
+                item.data(Qt.ItemDataRole.UserRole)))
+        headset_layout.addWidget(self.headset_list)
 
-        self.bci_conn_status_lbl = QLabel()
-        bind(self.bci_conn_status_lbl, "badge.not_connected")
-        self.bci_conn_status_lbl.setObjectName("statusBadge")
-        self.bci_conn_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        headset_layout.addWidget(self.bci_conn_status_lbl)
+        # Shown instead of the list while there is nothing to choose from.
+        self.headset_empty_lbl = bind(QLabel(), "headset.awaiting_auth")
+        self.headset_empty_lbl.setWordWrap(True)
+        self.headset_empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.headset_empty_lbl.setStyleSheet(
+            "color: #8b949e; font-size: 13px; padding: 26px 10px;"
+            "border: 1px dashed #30363d; border-radius: 6px;")
+        headset_layout.addWidget(self.headset_empty_lbl)
+        self.headset_list.setVisible(False)
+        
+        # No standalone Connect button and no status badge: each row carries
+        # its own Connect, and the badge spent most of its life showing
+        # "Scan Finished / Not Found", which said nothing the list does not.
+        # Connection progress still goes to the log.
+        headset_layout.addStretch()
         c_layout.addWidget(self.headset_group)
+        self.headset_page_layout = c_layout
 
         # Back button
         back_btn = QPushButton()
         bind(back_btn, "headset.back")
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_AUTH))
+        back_btn.setVisible(SHOW_AUTH_PAGE)
         c_layout.addWidget(back_btn)
 
-        layout.addWidget(container)
+        layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch(1)
         self.stacked_widget.addWidget(page)
 
     def setup_page_profile(self):
@@ -1757,15 +2694,32 @@ class TelloControllerApp(QMainWindow):
         )
         c_layout.addWidget(self.eq_overall_lbl)
 
+        map_group = QGroupBox()
+        bind(map_group, "eq.headmap_group", "setTitle")
+        map_layout = QVBoxLayout(map_group)
+        self.sensor_map = SensorHeadMapWidget()
+        self.sensor_map.setMinimumHeight(320)
+        map_layout.addWidget(self.sensor_map)
+        map_hint = bind(QLabel(), "eq.headmap_hint")
+        map_hint.setWordWrap(True)
+        map_hint.setStyleSheet("font-size: 11px; color: #6e7681;")
+        map_layout.addWidget(map_hint)
+
         sensor_group = QGroupBox()
         bind(sensor_group, "eq.group", "setTitle")
         self.eq_sensor_layout = QGridLayout(sensor_group)
         self.eq_sensor_layout.setSpacing(8)
         self.eq_sensor_labels = {}
-        c_layout.addWidget(sensor_group)
+
+        eq_split = QHBoxLayout()
+        eq_split.setSpacing(12)
+        eq_split.addWidget(map_group, stretch=3)
+        eq_split.addWidget(sensor_group, stretch=2)
+        c_layout.addLayout(eq_split)
 
         self.eq_status_lbl = QLabel()
         bind(self.eq_status_lbl, "eq.waiting_data")
+        self.eq_status_lbl.setWordWrap(True)
         self.eq_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #e3a01a; margin-top: 10px;")
         c_layout.addWidget(self.eq_status_lbl)
@@ -1869,6 +2823,14 @@ class TelloControllerApp(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         
+        # Contact quality belongs here more than anywhere: a training take
+        # recorded through a loose electrode is what produces a profile that
+        # never works, and the failure is invisible without this.
+        pill_row = QHBoxLayout()
+        pill_row.addStretch()
+        pill_row.addWidget(self._new_device_pill())
+        layout.addLayout(pill_row)
+
         title = QLabel()
         bind(title, "train.neutral.title")
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
@@ -1910,13 +2872,23 @@ class TelloControllerApp(QMainWindow):
         btn_layout.addWidget(self.neutral_reject_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
-        
+
+        exit_row = QHBoxLayout()
+        exit_row.addWidget(self._make_abandon_button())
+        exit_row.addStretch()
+        layout.addLayout(exit_row)
+
         self.stacked_widget.addWidget(page)
 
     def setup_page_train_push(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         
+        pill_row = QHBoxLayout()
+        pill_row.addStretch()
+        pill_row.addWidget(self._new_device_pill())
+        layout.addLayout(pill_row)
+
         title = QLabel()
         bind(title, "train.push.title")
         title.setStyleSheet("font-size: 20px; font-weight: bold; color: #58a6ff;")
@@ -1969,219 +2941,160 @@ class TelloControllerApp(QMainWindow):
         btn_layout.addWidget(self.push_next_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
-        
+
+        exit_row = QHBoxLayout()
+        exit_row.addWidget(self._make_abandon_button())
+        exit_row.addStretch()
+        layout.addLayout(exit_row)
+
         self.stacked_widget.addWidget(page)
 
     def setup_page_1(self):
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Unlike the setup pages, this one is not a form — it is a scene, and a
+        # fixed 1000px column left most of a wide monitor empty. Grow with the
+        # window up to a cap, centred by stretches on either side.
+        layout = QHBoxLayout(page)
+        layout.addStretch(1)
 
-        container = QWidget(); container.setFixedWidth(1000)
-        c_layout = QVBoxLayout(container); c_layout.setSpacing(14)
+        container = QWidget()
+        container.setMaximumWidth(1500)
+        container.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                QSizePolicy.Policy.Expanding)
+        c_layout = QVBoxLayout(container)
+        c_layout.setSpacing(10)
 
-        title = QLabel(); title.setObjectName("titleLabel")
-        bind(title, "test.title")
-        subtitle = QLabel()
-        bind(subtitle, "test.subtitle")
-        subtitle.setObjectName("subtitleLabel"); subtitle.setWordWrap(True)
-        c_layout.addWidget(title); c_layout.addWidget(subtitle)
+        # ── Top bar: who is playing, and the board ───────────────────────────
+        # No step title and no how-to panel here any more. Both were framing
+        # around the game; the controls are explained inside the scene, where
+        # the player is already looking.
+        top_bar = QHBoxLayout()
 
-        # ── Ring run: the competitive bit ────────────────────────────────────
-        game_group = QGroupBox()
-        bind(game_group, "game.group", "setTitle", seconds=RUN_SECONDS)
-        game_row = QHBoxLayout(game_group)
+        name_box = QVBoxLayout()
+        name_box.setSpacing(0)
+        playing_as = bind(QLabel(), "game.playing_as")
+        playing_as.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #6e7681;"
+            "letter-spacing: 2px;")
+        name_box.addWidget(playing_as)
 
-        # The player already named themselves when they created the training
-        # profile. Asking again invites a second, different name on the board.
-        game_row.addWidget(bind(QLabel(), "game.playing_as"))
+        # The player's name is the one piece of identity on screen and the name
+        # that goes on the board, so it is sized like a scoreboard entry.
         self.player_name_lbl = bind(QLabel(), "game.no_profile")
         self.player_name_lbl.setStyleSheet(
-            "font-size: 15px; font-weight: bold; color: #f1c40f;")
-        game_row.addWidget(self.player_name_lbl, stretch=1)
+            "font-size: 30px; font-weight: bold; color: #f1c40f;")
+        name_box.addWidget(self.player_name_lbl)
+        top_bar.addLayout(name_box)
+        top_bar.addStretch()
 
-        self.start_run_btn = bind(QPushButton(), "game.start")
-        self.start_run_btn.setObjectName("primaryBtn")
-        self.start_run_btn.clicked.connect(self._start_ring_run)
-        game_row.addWidget(self.start_run_btn)
+        self.device_pill = self._new_device_pill()
+        top_bar.addWidget(self.device_pill, alignment=Qt.AlignmentFlag.AlignVCenter)
+        top_bar.addSpacing(12)
 
         leaderboard_btn = bind(QPushButton(), "game.show_leaderboard")
+        leaderboard_btn.setMinimumHeight(38)
         leaderboard_btn.clicked.connect(
             lambda: self._show_leaderboard(PAGE_TEST))
-        game_row.addWidget(leaderboard_btn)
+        top_bar.addWidget(leaderboard_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+        c_layout.addLayout(top_bar)
 
-        c_layout.addWidget(game_group)
-
-        top_split = QHBoxLayout()
-        top_split.setSpacing(12)
-
-        # Left: the simulator, given the room it deserves.
-        state_group = QGroupBox()
-        bind(state_group, "test.state_group", "setTitle")
+        # ── The scene, given everything that is left ─────────────────────────
         self.state_layout = QVBoxLayout()
+        # 1px of margin so the frame's border is not painted over by the
+        # simulator, which fills its own rect opaquely.
+        self.state_layout.setContentsMargins(1, 1, 1, 1)
         self.drone_sim = DroneSimulatorWidget(self)
-        self.drone_sim.setMinimumSize(660, 430)
+        self.drone_sim.setMinimumSize(660, 400)
         self.drone_sim.setSizePolicy(QSizePolicy.Policy.Expanding,
                                      QSizePolicy.Policy.Expanding)
         self.state_layout.addWidget(self.drone_sim, stretch=1)
-        state_group.setLayout(self.state_layout)
-        top_split.addWidget(state_group, stretch=3)
 
-        # Right: everything that is a readout, stacked out of the way.
-        side = QVBoxLayout()
-        side.setSpacing(10)
+        scene_frame = QWidget()
+        scene_frame.setLayout(self.state_layout)
+        scene_frame.setStyleSheet(
+            "background-color: #05080d; border: 1px solid #30363d;"
+            "border-radius: 10px;")
+        c_layout.addWidget(scene_frame, stretch=1)
 
-        status_group = QGroupBox()
-        bind(status_group, "test.status_group", "setTitle")
-        status_layout = QVBoxLayout(status_group)
-        self.virtual_flight_state_lbl = QLabel()
-        bind(self.virtual_flight_state_lbl, "test.landed")
-        self.virtual_flight_state_lbl.setStyleSheet(
-            "font-size: 17px; font-weight: bold; color: #8b949e;")
-        status_layout.addWidget(self.virtual_flight_state_lbl)
+        # ── Bottom bar: settings and secondary actions left, the CTA right ───
+        bottom_bar = QHBoxLayout()
+        bottom_bar.setSpacing(16)
 
-        self.last_action_lbl = QLabel()
-        bind(self.last_action_lbl, "test.last_command_none")
-        self.last_action_lbl.setStyleSheet("color: #58a6ff;")
-        self.last_action_lbl.setWordWrap(True)
-        status_layout.addWidget(self.last_action_lbl)
-        side.addWidget(status_group)
+        left_stack = QVBoxLayout()
+        left_stack.setSpacing(8)
 
-        rc_group = QGroupBox()
-        bind(rc_group, "test.rc_group", "setTitle")
-        rc_grid = QGridLayout()
-        def make_bar():
-            b = QProgressBar()
-            b.setRange(-100, 100); b.setValue(0); b.setTextVisible(True); b.setFormat("%v")
-            return b
-        self.test_yaw_bar = make_bar()
-        self.test_fb_bar = make_bar()
-        rc_grid.addWidget(bind(QLabel(), "test.yaw"), 0, 0)
-        rc_grid.addWidget(self.test_yaw_bar, 0, 1)
-        rc_grid.addWidget(bind(QLabel(), "test.pitch"), 1, 0)
-        rc_grid.addWidget(self.test_fb_bar, 1, 1)
-        self.rc_lbl = QLabel("RC: lr=   0  fb=   0  ud=   0  yaw=   0")
-        self.rc_lbl.setStyleSheet(
-            "font-family: monospace; font-size: 12px; color: #58a6ff;"
-            "background: #0d1117; padding: 8px; border-radius: 5px;")
-        rc_grid.addWidget(self.rc_lbl, 2, 0, 1, 2)
-        rc_group.setLayout(rc_grid)
-        side.addWidget(rc_group)
+        mc_row = QHBoxLayout()
+        mc_row.setSpacing(12)
+        mc_caption = bind(QLabel(), "tune.mental")
+        mc_caption.setStyleSheet(
+            "font-size: 11px; font-weight: bold; color: #6e7681;"
+            "letter-spacing: 1px;")
+        mc_row.addWidget(mc_caption)
 
-        # Sensitivity, tunable while flying. Getting the feel right belongs here
-        # rather than behind the Configurations dialog: this is the screen where
-        # you can actually see the effect of a change, and the one you want it
-        # settled on before starting a timed run.
-        sens_group = QGroupBox()
-        bind(sens_group, "tune.group", "setTitle")
-        sens_layout = QVBoxLayout(sens_group)
-        sens_layout.setSpacing(4)
+        self.mc_sens_layout = QHBoxLayout()
+        self.mc_sens_layout.setSpacing(16)
+        mc_row.addLayout(self.mc_sens_layout)
 
-        tilt_lbl = bind(QLabel(), "tune.tilt")
-        tilt_lbl.setStyleSheet("font-size: 11px; color: #58a6ff; font-weight: bold;")
-        sens_layout.addWidget(tilt_lbl)
-
-        self.tilt_sliders = {}
-        tilt_grid = QGridLayout()
-        tilt_grid.setSpacing(4)
-        for row, (key, label, default) in enumerate((
-                ("sens_left", "◀", 70.0), ("sens_right", "▶", 70.0),
-                ("sens_fwd", "▲", 50.0), ("sens_back", "▼", 50.0))):
-            arrow = QLabel(label)
-            arrow.setFixedWidth(16)
-            arrow.setStyleSheet("font-size: 12px; color: #8b949e;")
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setRange(1, 300)
-            slider.setValue(int(self.config.get(key, default)))
-            value = QLabel(str(slider.value()))
-            value.setFixedWidth(28)
-            value.setStyleSheet("font-size: 11px; color: #8b949e;")
-            slider.valueChanged.connect(
-                lambda v, k=key, lab=value: self._on_tilt_sens(k, v, lab))
-            tilt_grid.addWidget(arrow, row, 0)
-            tilt_grid.addWidget(slider, row, 1)
-            tilt_grid.addWidget(value, row, 2)
-            self.tilt_sliders[key] = slider
-        sens_layout.addLayout(tilt_grid)
-
-        dead_row = QHBoxLayout()
-        dead_lbl = bind(QLabel(), "tune.deadzone")
-        dead_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
-        self.dead_slider_inline = QSlider(Qt.Orientation.Horizontal)
-        self.dead_slider_inline.setRange(0, 500)
-        self.dead_slider_inline.setValue(int(self.config.get("deadzone", 0.02) * 1000))
-        self.dead_value_lbl = QLabel(f"{self.dead_slider_inline.value()/1000:.3f}")
-        self.dead_value_lbl.setFixedWidth(38)
-        self.dead_value_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
-        self.dead_slider_inline.valueChanged.connect(self._on_deadzone)
-        dead_row.addWidget(dead_lbl); dead_row.addWidget(self.dead_slider_inline)
-        dead_row.addWidget(self.dead_value_lbl)
-        sens_layout.addLayout(dead_row)
-
-        mc_lbl = bind(QLabel(), "tune.mental")
-        mc_lbl.setStyleSheet(
-            "font-size: 11px; color: #58a6ff; font-weight: bold; padding-top: 6px;")
-        sens_layout.addWidget(mc_lbl)
-
-        # Filled in once Cortex answers mentalCommandActionSensitivity — the
-        # action list is whatever this profile was actually trained on.
-        self.mc_sens_layout = QVBoxLayout()
-        self.mc_sens_layout.setSpacing(4)
-        sens_layout.addLayout(self.mc_sens_layout)
         self.mc_sens_hint = bind(QLabel(), "tune.mental_waiting")
-        self.mc_sens_hint.setWordWrap(True)
-        self.mc_sens_hint.setStyleSheet("font-size: 10px; color: #6e7681;")
-        sens_layout.addWidget(self.mc_sens_hint)
+        self.mc_sens_hint.setStyleSheet("font-size: 11px; color: #6e7681;")
+        mc_row.addWidget(self.mc_sens_hint)
+        mc_row.addStretch()
+        left_stack.addLayout(mc_row)
 
         self.inline_mc_sliders = []
-        side.addWidget(sens_group)
 
-        # Raw Cortex dumps: useful when debugging, noise the rest of the time.
-        self.raw_group = QGroupBox()
-        bind(self.raw_group, "test.raw_group", "setTitle")
-        raw_layout = QVBoxLayout()
-        self.raw_mot_lbl = QLabel("MOT: None")
-        self.raw_mot_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 10px;")
-        self.raw_mot_lbl.setWordWrap(True)
-        self.raw_com_lbl = QLabel("COM: None")
-        self.raw_com_lbl.setStyleSheet("color: #8b949e; font-family: monospace; font-size: 10px;")
-        self.raw_com_lbl.setWordWrap(True)
-        raw_layout.addWidget(self.raw_mot_lbl)
-        raw_layout.addWidget(self.raw_com_lbl)
-        self.raw_group.setLayout(raw_layout)
-        self.raw_group.setVisible(SHOW_REAL_DRONE)
-        side.addWidget(self.raw_group)
-
-        side.addStretch()
-        top_split.addLayout(side, stretch=1)
-        c_layout.addLayout(top_split, stretch=1)
-
-        btn_row = QHBoxLayout()
+        # Secondary actions, deliberately quiet next to Start Run.
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
         back_btn = bind(QPushButton(), "test.back")
         back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_PROFILE))
 
-        fs_btn = bind(QPushButton(), "test.fullscreen")
-        fs_btn.clicked.connect(self.toggle_fullscreen)
-
         self.recenter_btn_p1 = bind(QPushButton(), "test.recenter")
         self.recenter_btn_p1.setObjectName("blueBtn")
+        # The old how-to panel's line about recentring lives here now: it is
+        # advice about this button, so it belongs on it.
+        bind(self.recenter_btn_p1, "howto.recenter", "setToolTip")
         self.recenter_btn_p1.clicked.connect(self.reset_headset)
 
         self.retrain_btn = bind(QPushButton(), "retrain.button")
         bind(self.retrain_btn, "retrain.tip", "setToolTip")
         self.retrain_btn.clicked.connect(self._reset_and_retrain)
+
         self.real_drone_btn = bind(QPushButton(), "test.next")
-        self.real_drone_btn.setObjectName("primaryBtn")
         self.real_drone_btn.clicked.connect(
             lambda: self.stacked_widget.setCurrentIndex(PAGE_DRONE))
         self.real_drone_btn.setVisible(SHOW_REAL_DRONE)
 
-        btn_row.addWidget(back_btn); btn_row.addWidget(fs_btn)
-        btn_row.addWidget(self.recenter_btn_p1); btn_row.addWidget(self.retrain_btn)
-        btn_row.addWidget(self.real_drone_btn)
-        c_layout.addLayout(btn_row)
+        for button in (back_btn, self.recenter_btn_p1, self.retrain_btn,
+                       self.real_drone_btn):
+            action_row.addWidget(button)
+        action_row.addStretch()
+        left_stack.addLayout(action_row)
 
-        layout.addWidget(container)
+        bottom_bar.addLayout(left_stack, stretch=1)
+
+        # The one thing the screen is asking you to do, in the corner a game
+        # puts it and sized to match.
+        cta_box = QVBoxLayout()
+        cta_box.setSpacing(2)
+        run_caption = bind(QLabel(), "game.group", seconds=RUN_SECONDS)
+        run_caption.setStyleSheet("font-size: 11px; color: #6e7681;")
+        run_caption.setAlignment(Qt.AlignmentFlag.AlignRight)
+        cta_box.addWidget(run_caption)
+
+        self.start_run_btn = bind(QPushButton(), "game.start")
+        self.start_run_btn.setObjectName("heroBtn")
+        self.start_run_btn.setMinimumSize(300, 68)
+        self.start_run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.start_run_btn.clicked.connect(self._start_ring_run)
+        cta_box.addWidget(self.start_run_btn)
+        bottom_bar.addLayout(cta_box)
+
+        c_layout.addLayout(bottom_bar)
+
+
+        layout.addWidget(container, stretch=20)
+        layout.addStretch(1)
         self.stacked_widget.addWidget(page)
 
     def setup_page_2(self):
@@ -2352,6 +3265,18 @@ class TelloControllerApp(QMainWindow):
             "font-size: 20px; font-weight: bold; color: #58a6ff; padding: 4px;")
         c_layout.addWidget(self.rank_lbl)
 
+        self.congrats_lbl = QLabel()
+        self.congrats_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.congrats_lbl.setWordWrap(True)
+        c_layout.addWidget(self.congrats_lbl)
+
+        # The whole point of the exercise, said out loud: they flew it with EEG.
+        self.mind_lbl = bind(QLabel(), "game.mind_message")
+        self.mind_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mind_lbl.setWordWrap(True)
+        self.mind_lbl.setStyleSheet("font-size: 15px; color: #bc8cff;")
+        c_layout.addWidget(self.mind_lbl)
+
         podium_group = QGroupBox()
         bind(podium_group, "game.podium", "setTitle")
         self.podium_grid = QGridLayout(podium_group)
@@ -2376,6 +3301,7 @@ class TelloControllerApp(QMainWindow):
 
         layout.addWidget(container)
         self.stacked_widget.addWidget(page)
+        self.gameover_confetti = ConfettiOverlay(page)
 
     def setup_page_leaderboard(self):
         page = QWidget()
@@ -2426,18 +3352,44 @@ class TelloControllerApp(QMainWindow):
         self.stacked_widget.addWidget(page)
 
     # ── Run lifecycle ────────────────────────────────────────────────────────
+    COUNTDOWN_SECONDS = 3
+
     def _start_ring_run(self):
-        if self.run_timer.isActive():
+        if self.run_timer.isActive() or self.run_countdown_timer.isActive():
             return
         name = (self.config.get("profile_name") or "").strip() or t("game.anonymous")
         self.current_player = name
 
+        self.start_run_btn.setEnabled(False)
+        bind(self.start_run_btn, "game.get_ready")
+
+        # Clean slate to fly from, but no clock and no scoring until "Go!".
+        self.drone_sim.end_run()
+        self.drone_sim.reset_flight()
+        self._countdown_left = self.COUNTDOWN_SECONDS
+        self.drone_sim.set_countdown(t("game.get_ready"), self._countdown_left)
+        self.run_countdown_timer.start(1000)
+
+    def _on_countdown_step(self):
+        self._countdown_left -= 1
+        if self._countdown_left > 0:
+            self.drone_sim.set_countdown(t("game.get_ready"), self._countdown_left)
+            return
+
+        if self._countdown_left == 0:
+            # "Go!" gets its own beat before the clock appears.
+            self.drone_sim.set_countdown(None, t("game.go"))
+            return
+
+        self.run_countdown_timer.stop()
+        self._begin_timed_run()
+
+    def _begin_timed_run(self):
         self.drone_sim.start_run(RUN_SECONDS)
         self._run_deadline = time.monotonic() + RUN_SECONDS
         self.run_timer.start(100)
-        self.start_run_btn.setEnabled(False)
         bind(self.start_run_btn, "game.running")
-        self.log(t("log.run_started", name=name, seconds=RUN_SECONDS))
+        self.log(t("log.run_started", name=self.current_player, seconds=RUN_SECONDS))
 
     def _on_run_tick(self):
         remaining = self._run_deadline - time.monotonic()
@@ -2506,11 +3458,11 @@ class TelloControllerApp(QMainWindow):
         """
         profile = (self.config.get("profile_name") or "").strip()
         if profile and self.drone_client:
-            self._run_profile_admin(
-                lambda: self.drone_client.delete_profile(profile),
-                "log.profile_deleting", profile)
+            self.log(t("log.profile_deleting", profile=profile))
             self.config["profile_name"] = ""
             ConfigManager.save_config(self.config)
+        else:
+            profile = ""
 
         # The sensitivity panel is showing the outgoing player's actions; blank
         # it so the next profile rebuilds it from its own training.
@@ -2523,14 +3475,62 @@ class TelloControllerApp(QMainWindow):
         self.drone_sim.end_run()
         self.drone_sim.reset_flight()
 
+        # Hand the headset back: close the session and drop the link, then
+        # rescan. Without the disconnect the next player lands on a list still
+        # showing a headset held open by the run that just ended, and picking it
+        # reuses the outgoing session instead of starting clean.
         self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
-        self._refresh_headsets()
+        self._release_headset(profile)
         self.log(t("log.session_handoff"))
 
-    def _run_profile_admin(self, fn, log_key: str, profile: str):
-        """Profile admin talks to Cortex with blocking sends and sleeps."""
-        self.log(t(log_key, profile=profile))
-        threading.Thread(target=fn, daemon=True).start()
+    def _release_headset(self, profile: str = ""):
+        """Delete the outgoing profile, disconnect, then rescan for headsets.
+
+        One worker thread for the whole sequence: the steps are ordered and
+        every one of them is a blocking Cortex send.
+        """
+        if not self.drone_client:
+            self.log(t("log.client_not_init"))
+            return
+
+        # Back to the pre-connection look while the rescan runs, so the list
+        # cannot be mistaken for a live one.
+        self.headset_list.clear()
+        self.headset_rows = []
+        self.headset_list.setVisible(False)
+        self.headset_empty_lbl.setVisible(True)
+        bind(self.headset_empty_lbl, "headset.refreshing")
+        bind(self.headset_count_lbl, "headset.refreshing")
+        self.refresh_headsets_btn.setEnabled(False)
+        bind(self.refresh_headsets_btn, "headset.refreshing")
+        self.profile_group.setEnabled(False)
+
+        # The outgoing headset's electrodes are not the next one's: clear the
+        # map and the rows so nothing stale is on screen when the list rebuilds.
+        self.dev_sensor_labels = []
+        self._dev_keep_idx = None
+        self._dev_overall_idx = None
+        self.sensor_map.clear()
+        self._pills_device("")
+        self._pills_quality(None, [], [], None)
+        self._pills_battery(None)
+        clear_grid(self.eq_sensor_layout)
+        self.eq_sensor_labels = {}
+        self.log(t("log.releasing_headset"))
+
+        def done():
+            self.refresh_headsets_btn.setEnabled(True)
+            bind(self.refresh_headsets_btn, "headset.refresh")
+
+        def work():
+            try:
+                self.drone_client.finish_session(profile)
+            except Exception as e:
+                self.log(t("log.refresh_failed", detail=e))
+            finally:
+                self.ui_task_signal.emit(done)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _on_profile_admin(self, event: dict):
         kind = event.get("type")
@@ -2573,6 +3573,17 @@ class TelloControllerApp(QMainWindow):
             self.rank_lbl.setText(t("game.rank", rank=rank, total=total))
             self.rank_lbl.setStyleSheet(
                 "font-size: 20px; font-weight: bold; color: #58a6ff; padding: 4px;")
+
+        message, colour, celebrate = congratulation(rank, total)
+        self.rank_lbl.setVisible(not message)
+        self.congrats_lbl.setText(message)
+        self.congrats_lbl.setStyleSheet(
+            f"font-size: 22px; font-weight: bold; color: {colour}; padding: 2px;")
+        self.mind_lbl.setVisible(bool(message))
+        if celebrate:
+            self.gameover_confetti.start()
+        else:
+            self.gameover_confetti.stop()
 
         self._clear_grid(self.podium_grid)
         for i, e in enumerate(entries[:5]):
@@ -2722,7 +3733,6 @@ class TelloControllerApp(QMainWindow):
         csec = 'SIM' if is_sim else self.client_secret_input.text()
 
         self.connect_bci_btn.setEnabled(False)
-        bind(self.bci_conn_status_lbl, "badge.connecting")
 
         self.drone_client = TelloDroneClient(
             cid, csec, tello=None,
@@ -2734,6 +3744,7 @@ class TelloControllerApp(QMainWindow):
             headsets_callback=self.update_headsets,
             training_callback=self.training_signal.emit,
             dev_data_callback=self.dev_data_signal.emit,
+            dev_labels_callback=self.dev_labels_signal.emit,
             mc_config_callback=self.mc_config_signal.emit,
             brainmap_callback=self.brainmap_signal.emit,
             profile_admin_callback=self.profile_admin_signal.emit
@@ -2770,40 +3781,123 @@ class TelloControllerApp(QMainWindow):
     # ──────────────────────────────────────────────
     def _populate_headsets(self, headsets: list):
         """Populate the headset dropdown."""
-        self.headset_combo.clear()
-        
+        # Keep whatever was highlighted, so a rescan does not move the
+        # selection out from under someone about to press Connect.
+        self.headset_list.clear()
+        self.headset_rows = []
+
         if not headsets:
-            self.headset_combo._placeholder_key = "headset.none_found"
-            self.headset_combo.addItem(t("headset.none_found"))
-            self.headset_combo.setEnabled(False)
-            self.connect_headset_btn.setEnabled(False)
+            self.headset_list.setVisible(False)
+            self.headset_empty_lbl.setVisible(True)
+            bind(self.headset_empty_lbl, "headset.none_found")
+            bind(self.headset_count_lbl, "headset.count", count=0)
             self.log(t("log.no_headsets"))
             return
 
-        self.headset_combo._placeholder_key = None
         for hs in headsets:
             hs_id = hs.get('id', 'Unknown')
             status = hs.get('status', 'Unknown')
-            self.headset_combo.addItem(t("headset.item", id=hs_id, status=status), userData=hs_id)
+            row = self._build_headset_row(hs_id, status)
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, hs_id)
+            item.setSizeHint(row.sizeHint())
+            self.headset_list.addItem(item)
+            self.headset_list.setItemWidget(item, row)
 
-        self.headset_combo.setEnabled(True)
-        self.connect_headset_btn.setEnabled(True)
+        # Height follows the contents up to four rows, then scrolls.
+        rows = min(len(headsets), 4)
+        row_h = self.headset_list.item(0).sizeHint().height()
+        self.headset_list.setFixedHeight(rows * row_h + 14)
+        bind(self.headset_count_lbl, "headset.count", count=len(headsets))
+
+        self.headset_empty_lbl.setVisible(False)
+        self.headset_list.setVisible(True)
         self.headset_group.setEnabled(True)
         self.log(t("log.headsets_available", count=len(headsets)))
         # Auto-advance to headset selection screen on successful authentication & headset query
         self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
 
-    def _connect_headset(self):
-        """Connect to the selected headset."""
-        idx = self.headset_combo.currentIndex()
-        headset_id = self.headset_combo.itemData(idx)
+    def _set_headset_rows_busy(self, busy: bool, active_id: str = ""):
+        """Lock every row's Connect while one connection is in flight.
+
+        Two headsets cannot be brought up at once, and a second press during
+        the handshake would leave the app talking to a device the user is no
+        longer expecting.
+        """
+        for headset_id, button in getattr(self, "headset_rows", []):
+            button.setEnabled(not busy)
+            bind(button, "headset.connecting_btn"
+                 if busy and headset_id == active_id else "headset.connect")
+
+    def _build_headset_row(self, headset_id: str, status: str) -> QWidget:
+        """One device: product shot, name and state, and its own Connect.
+
+        Choosing a headset and connecting to it were two steps for no reason —
+        nobody selects a device they do not intend to use — so the button lives
+        on the row it acts on.
+        """
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(14)
+
+        shot = headset_pixmap(headset_id)
+        if shot is not None:
+            picture = QLabel()
+            # Fixed box, and the label is sized to match it. Setting only a
+            # width let the row squeeze the label shorter than its pixmap,
+            # which QLabel resolves by cropping — the headsets lost their top
+            # and bottom edges.
+            scaled = shot.scaled(
+                PRODUCT_SHOT.width(), PRODUCT_SHOT.height(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+            picture.setPixmap(scaled)
+            picture.setFixedSize(PRODUCT_SHOT)
+            picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            picture.setScaledContents(False)
+            layout.addWidget(picture)
+
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        name = QLabel(headset_id)
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #e6edf3;")
+        text.addWidget(name)
+
+        state = QLabel(i18n.headset_status(status))
+        connected = str(status).lower() == "connected"
+        state.setStyleSheet(
+            "font-size: 12px; color: %s;" % ("#3fb950" if connected else "#8b949e"))
+        text.addWidget(state)
+        layout.addLayout(text)
+        layout.addStretch()
+
+        button = bind(QPushButton(), "headset.connect")
+        button.setObjectName("blueBtn")
+        button.setMinimumWidth(132)
+        button.setMinimumHeight(36)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(lambda _c=False, hid=headset_id: self._connect_headset(hid))
+        layout.addWidget(button)
+
+        self.headset_rows.append((headset_id, button))
+        return row
+
+    def _connect_headset(self, headset_id: str = ""):
+        """Connect to a headset, named by the row whose button was pressed."""
         if not headset_id:
             self.log(t("log.no_headset_selected"))
             return
 
-        self.connect_headset_btn.setEnabled(False)
-        bind(self.connect_headset_btn, "headset.connecting_btn")
-        
+        # Switching devices: let go of the old one first. Cortex keeps the
+        # previous headset connected otherwise, and the session that follows is
+        # still bound to it.
+        previous = (self.config.get("device_id") or "").strip()
+        switching = bool(previous) and previous != headset_id and self.drone_client
+
+        self._set_headset_rows_busy(True, headset_id)
+        self._pills_device(headset_id)
+
         # Load and apply device-specific config profile
         device_type = headset_id.split('-')[0]
         self.config = ConfigManager.get_device_config(self.config, device_type)
@@ -2814,29 +3908,21 @@ class TelloControllerApp(QMainWindow):
         self.log(t("log.connecting_headset", headset=headset_id))
 
         if self.drone_client:
-            threading.Thread(
-                target=self.drone_client.connect_headset,
-                args=(headset_id,),
-                daemon=True
-            ).start()
+            def connect():
+                if switching:
+                    self.log(t("log.switching_headset", headset=previous))
+                    try:
+                        self.drone_client.release_headset(rescan=False)
+                    except Exception as e:
+                        applog.exception("release before switch", e)
+                self.drone_client.connect_headset(headset_id)
+
+            threading.Thread(target=connect, daemon=True).start()
         else:
             self.log(t("log.client_not_init"))
-            self.connect_headset_btn.setEnabled(True)
-            bind(self.connect_headset_btn, "headset.connect")
+            self._set_headset_rows_busy(False)
 
     # ── Live sensitivity tuning ──────────────────────────────────────────────
-    def _on_tilt_sens(self, key: str, value: int, label: QLabel):
-        label.setText(str(value))
-        self.config[key] = float(value)
-        ConfigManager.save_config(self.config)
-        self._apply_config_to_client()
-
-    def _on_deadzone(self, value: int):
-        self.dead_value_lbl.setText(f"{value/1000:.3f}")
-        self.config["deadzone"] = value / 1000.0
-        ConfigManager.save_config(self.config)
-        self._apply_config_to_client()
-
     def _build_inline_mc_sliders(self):
         """One slider per trained action, straight from Cortex's own list."""
         for widget, _ in self.inline_mc_sliders:
@@ -2862,13 +3948,13 @@ class TelloControllerApp(QMainWindow):
                 bind(name, key)
             else:
                 name.setText(action)
-            name.setFixedWidth(58)
-            name.setStyleSheet("font-size: 11px; color: #8b949e;")
+            name.setStyleSheet("font-size: 12px; color: #c9d1d9;")
             slider = QSlider(Qt.Orientation.Horizontal)
             slider.setRange(1, 10)
             slider.setValue(int(values[i]))
+            slider.setMinimumWidth(110)
             value_lbl = QLabel(str(slider.value()))
-            value_lbl.setFixedWidth(20)
+            value_lbl.setFixedWidth(18)
             value_lbl.setStyleSheet("font-size: 11px; color: #8b949e;")
             slider.valueChanged.connect(lambda v, l=value_lbl: l.setText(str(v)))
             # Cortex writes to the profile on every call, so only push when the
@@ -2876,8 +3962,11 @@ class TelloControllerApp(QMainWindow):
             slider.sliderReleased.connect(self._push_mc_sensitivity)
             row.addWidget(name); row.addWidget(slider); row.addWidget(value_lbl)
 
+            row.setContentsMargins(0, 0, 0, 0)
             holder = QWidget()
             holder.setLayout(row)
+            # A row under the scene rather than a column beside it, so the
+            # trained commands read left-to-right like the rest of the strip.
             self.mc_sens_layout.addWidget(holder)
             self.inline_mc_sliders.append((holder, slider))
 
@@ -2940,7 +4029,7 @@ class TelloControllerApp(QMainWindow):
             try:
                 self.drone_client.refresh_headsets()
             finally:
-                QTimer.singleShot(0, done)
+                self.ui_task_signal.emit(done)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -3020,18 +4109,40 @@ class TelloControllerApp(QMainWindow):
         # them at this boundary so the badge and the log follow the UI language.
         self.log(t("log.bci_status", status=i18n.backend_status(status)))
 
+        if status.startswith("CONNECTION_FAILED:"):
+            self._show_connection_problem(status[len("CONNECTION_FAILED:"):])
+            return
+
+        if status.startswith("HEADSET_LOST:"):
+            self._on_headset_lost(status[len("HEADSET_LOST:"):])
+            return
+
+        if status.startswith("HEADSET_NOT_FOUND:"):
+            headset = status[len("HEADSET_NOT_FOUND:"):]
+            self._set_headset_rows_busy(False)
+            self.log(t("log.headset_gone", headset=headset))
+            return
+
+        if status.startswith("ACCESS_REJECTED:"):
+            # Declined in Launcher. Nothing retries by itself from here, so say
+            # so on the page that has the Retry button.
+            self._show_connection_problem("", rejected=True)
+            return
+
         if status.startswith("PENDING_ACCESS:"):
+            # The banner lives on the headset page; approving in EMOTIV Launcher
+            # is the one thing only the user can do, so make sure it is on screen.
+            if self.stacked_widget.currentIndex() <= PAGE_HEADSET:
+                self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
             self._show_access_pending_ui(status[len("PENDING_ACCESS:"):])
             return
 
         if status.startswith("PROFILE_LOADED:"):
-            msg = status[len("PROFILE_LOADED:"):]
-            bind(self.bci_conn_status_lbl, "badge.profile_loaded",
-                 profile=i18n.profile_name_from_loaded(msg))
-            self.bci_conn_status_lbl.setStyleSheet("background-color: #1a4a2e; border: 1px solid #3fb950;")
+            self.log(t("badge.profile_loaded",
+                       profile=i18n.profile_name_from_loaded(
+                           status[len("PROFILE_LOADED:"):])))
             self._hide_access_pending_ui()
             self.p0_next_btn.setEnabled(True)
-            self._override_action_for_test()
             # Re-enable the Load button so the user can switch profiles
             self.load_profile_btn.setEnabled(True)
             bind(self.load_profile_btn, "profile.load")
@@ -3042,12 +4153,8 @@ class TelloControllerApp(QMainWindow):
             )
             return
 
-        bind(self.bci_conn_status_lbl, "badge.status", status=i18n.backend_status(status))
         if "Active" in status:
-            bind(self.bci_conn_status_lbl, "badge.bci_active")
-            self.bci_conn_status_lbl.setStyleSheet("background-color: #238636;")
             self._hide_access_pending_ui()
-            self._override_action_for_test()
             # Session is active — user can now select and load a profile.
             self.profile_group.setEnabled(True)
             self.profile_combo.setEnabled(True)
@@ -3060,17 +4167,147 @@ class TelloControllerApp(QMainWindow):
             if is_sim:
                 self.p0_next_btn.setEnabled(True)
         elif "Error" in status or "error" in status.lower() or "finished" in status.lower() or "warning" in status.lower() or "failed" in status.lower():
-            bind(self.bci_conn_status_lbl, "badge.scan_finished")
+            # Give the rows back: a connection that failed leaves every Connect
+            # button disabled otherwise, with nothing to press.
+            self._set_headset_rows_busy(False)
             bind(self.connect_bci_btn, "auth.retry")
             self.connect_bci_btn.setEnabled(True)
             # Re-enable load button in case of profile load error
             self.load_profile_btn.setEnabled(True)
             bind(self.load_profile_btn, "profile.load")
 
+    # How long to keep trying before giving the headset up as gone.
+    RECONNECT_SECONDS = 30
+
+    def _on_headset_lost(self, headset_id: str):
+        """The headset dropped mid-session: say so, then try to get it back.
+
+        The session is left alone. Cortex resumes the existing subscriptions
+        once the device is back, so the loaded profile and any run in progress
+        survive a brief dropout — which is most of them.
+        """
+        if self.reconnect_timer.isActive():
+            return
+
+        self._lost_headset = headset_id or (self.config.get("device_id") or "")
+        self._reconnect_deadline = time.monotonic() + self.RECONNECT_SECONDS
+        self.log(t("log.headset_lost", headset=self._lost_headset))
+
+        # A run cannot continue while the headset is off, but it is not
+        # abandoned yet — the clock stops and waits for the retry to resolve.
+        self._run_paused = self.run_timer.isActive()
+        if self._run_paused:
+            self.run_timer.stop()
+        if self.run_countdown_timer.isActive():
+            self.run_countdown_timer.stop()
+
+        self.reconnect_banner.show_for(self._lost_headset, self.RECONNECT_SECONDS)
+        self.reconnect_timer.start(1000)
+        self._try_reconnect()
+
+    def _try_reconnect(self):
+        if not self.drone_client:
+            return
+        threading.Thread(
+            target=lambda: self.drone_client.reconnect_headset(self._lost_headset),
+            daemon=True).start()
+
+    def _on_reconnect_tick(self):
+        remaining = self._reconnect_deadline - time.monotonic()
+        if remaining <= 0:
+            self._give_up_reconnect()
+            return
+        self.reconnect_banner.set_remaining(remaining)
+        # Retry every other second; each attempt is a queryHeadset round trip.
+        if int(remaining) % 2 == 0:
+            self._try_reconnect()
+
+    def _on_headset_recovered(self):
+        """Called when streams come back while the banner is up."""
+        if not self.reconnect_timer.isActive():
+            return
+        self.reconnect_timer.stop()
+        self.reconnect_banner.hide()
+        self.log(t("log.headset_recovered", headset=self._lost_headset))
+        if self._run_paused:
+            # Give the player a beat to get their head back before the clock
+            # starts again, rather than resuming mid-sentence.
+            self._run_paused = False
+            self._run_deadline = time.monotonic() + max(
+                1.0, self.drone_sim.time_left)
+            self.run_timer.start(100)
+
+    def _give_up_reconnect(self):
+        """Out of time: drop the run and go back to the device list."""
+        self.reconnect_timer.stop()
+        self.reconnect_banner.hide()
+        self._run_paused = False
+        self.log(t("log.headset_lost_final", headset=self._lost_headset))
+
+        self.run_timer.stop()
+        self.run_countdown_timer.stop()
+        self.drone_sim.end_run()
+        self.start_run_btn.setEnabled(True)
+        bind(self.start_run_btn, "game.start")
+
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
+        self._release_headset()
+
+    def _show_connection_problem(self, detail: str, rejected: bool = False):
+        """Surface the troubleshooting page when the app cannot reach Cortex.
+
+        This is the only route to the credentials form now: it is not step one
+        any more, because the credentials are almost never what is wrong —
+        EMOTIV Launcher being closed, or this application never having been
+        approved in it, is.
+        """
+        if rejected:
+            bind(self.auth_reason_lbl, "access.rejected_body")
+            self.auth_reason_lbl.setVisible(True)
+        else:
+            # A failing socket reports twice — on_error with the real reason,
+            # then on_close with nothing. Keep the first specific message
+            # instead of letting the empty one overwrite it, and show no banner
+            # at all rather than repeating the intro paragraph verbatim.
+            if detail:
+                self._conn_fail_detail = detail
+            detail = getattr(self, "_conn_fail_detail", "")
+            if detail:
+                bind(self.auth_reason_lbl, "auth.reason", detail=detail)
+            self.auth_reason_lbl.setVisible(bool(detail))
+
+        self.auth_retry_btn.setEnabled(True)
+        bind(self.auth_retry_btn, "auth.retry")
+        self.stacked_widget.setCurrentIndex(PAGE_AUTH)
+
+    def _retry_connection(self):
+        """Start over from scratch after the user has fixed whatever was wrong."""
+        self.auth_retry_btn.setEnabled(False)
+        bind(self.auth_retry_btn, "auth.retrying")
+        self.auth_reason_lbl.setVisible(False)
+        self._conn_fail_detail = ""
+
+        if self.drone_client:
+            # The old socket is dead or unauthorized; drop it rather than
+            # stacking a second client on top of it. close() blocks for about a
+            # second, so it does not belong on the UI thread.
+            stale, self.drone_client = self.drone_client, None
+            threading.Thread(
+                target=lambda: self._quietly(stale.close), daemon=True).start()
+
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
+        QTimer.singleShot(400, self._start_bci)
+
+    @staticmethod
+    def _quietly(fn):
+        """Run a teardown call whose failure should not matter."""
+        try:
+            fn()
+        except Exception as e:
+            print(f"[teardown] {e}", flush=True)
+
     def _show_access_pending_ui(self, message: str):
         """Show a prominent inline banner asking the user to approve via EMOTIV Launcher."""
-        bind(self.bci_conn_status_lbl, "badge.waiting_approval")
-        self.bci_conn_status_lbl.setStyleSheet("background-color: #7d4e00; border: 1px solid #e3a01a;")
 
         # Cortex sends its own English sentence here; swap in the translated one
         # when it is the stock message, otherwise show what Cortex said.
@@ -3124,16 +4361,12 @@ class TelloControllerApp(QMainWindow):
             b_layout.addWidget(retry_btn)
 
             self._access_banner = banner
-            # Insert banner right below the status badge in the page-0 container
-            # The container's layout is c_layout (index 0 child of page 0)
-            page0_container = self.stacked_widget.widget(0).findChild(QWidget)
-            page0_c_layout = page0_container.layout() if page0_container else None
-            if page0_c_layout:
-                # Insert before the btn_row (second-to-last item) - just append for safety
-                page0_c_layout.insertWidget(
-                    page0_c_layout.indexOf(self.bci_conn_status_lbl) + 1,
-                    banner
-                )
+            # and where auto-connect leaves the user. This used to target the
+            # auth page while anchoring on a widget that is not on it, so
+            # indexOf() returned -1 and the banner landed on a page nobody sees.
+            layout = getattr(self, "headset_page_layout", None)
+            if layout is not None:
+                layout.insertWidget(layout.indexOf(self.headset_group) + 1, banner)
         else:
             if message_key:
                 bind(self._access_msg_lbl, message_key)
@@ -3225,7 +4458,8 @@ class TelloControllerApp(QMainWindow):
         if "rejected" in event_lower or "erased" in event_lower:
             # Acknowledged only. _on_training_reject already queued the retake;
             # restarting here as well would run two countdowns at once.
-            self.log(t("log.training_rejected", action=action))
+            self.log(t("log.training_rejected", action=(
+                t(f"action.{action}") if i18n.has(f"action.{action}") else action)))
         elif "started" in event_lower:
             pass # Handled by local recording timer
         elif "succeeded" in event_lower:
@@ -3256,39 +4490,78 @@ class TelloControllerApp(QMainWindow):
                 self.stacked_widget.setCurrentIndex(PAGE_BRAINMAP)
                 QTimer.singleShot(900, self._request_brain_map)
 
+    # Cortex ends the contact-quality columns with a summary channel rather
+    # than an electrode. It already has its own readout at the top of the
+    # screen, and it has no place on a scalp map.
+    NON_ELECTRODE_CHANNELS = {"OVERALL", "BATTERY"}
+
+    def _on_dev_labels(self, labels: list):
+        """Electrode names for this headset, e.g. ['AF3','T7','Pz','T8','AF4']."""
+        keep = [i for i, name in enumerate(labels)
+                if str(name).upper() not in self.NON_ELECTRODE_CHANNELS]
+        self._dev_keep_idx = keep
+        # OVERALL is not an electrode and not a 0-4 grade — it is the headset's
+        # own contact-quality percentage. Remember where it sits so the summary
+        # can come from the sensors rather than from wireless signal strength.
+        self._dev_overall_idx = next(
+            (i for i, name in enumerate(labels) if str(name).upper() == "OVERALL"),
+            None)
+        self.dev_sensor_labels = [str(labels[i]) for i in keep]
+        clear_grid(self.eq_sensor_layout)
+        self.eq_sensor_labels = {}
+        self.log(t("log.sensor_labels", labels=", ".join(self.dev_sensor_labels)))
+
     def _on_dev_data_update(self, signal: int, cq_list: list):
-        """Update the EQ quality check screen with per-sensor contact quality."""
-        # Only update when on the EQ check screen (index 3)
+        """Per-sensor contact quality: the EQ screen and the in-flight pill."""
+        if self.reconnect_timer.isActive():
+            self._on_headset_recovered()
+        overall_now = contact_percent(cq_list,
+                                      getattr(self, "_dev_overall_idx", None),
+                                      getattr(self, "_dev_keep_idx", None))
+        self._pills_quality(overall_now, cq_list,
+                            getattr(self, "dev_sensor_labels", []),
+                            getattr(self, "_dev_keep_idx", None))
+
+        # Everything below draws the EQ screen, which is not always on top.
         if self.stacked_widget.currentIndex() != PAGE_EQ:
             return
 
-        # Overall signal quality (0-4)
-        signal_keys = {0: "quality.none", 1: "quality.very_bad", 2: "quality.poor",
-                       3: "quality.fair", 4: "quality.good"}
-        signal_colors = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
-        key = signal_keys.get(signal)
-        sig_text = t(key) if key else t("quality.unknown", value=signal)
-        sig_color = signal_colors.get(signal, "#8b949e")
-        bind(self.eq_overall_lbl, "eq.overall", quality=sig_text, value=signal)
+        # The summary comes from the electrodes, not from `signal`. `signal` is
+        # the wireless link between headset and dongle — a different
+        # measurement that a simulated headset pins at 1, which is why this
+        # read "Very Bad" with every sensor green.
+        overall = contact_percent(cq_list, getattr(self, "_dev_overall_idx", None),
+                                  getattr(self, "_dev_keep_idx", None))
+        grade, colour = contact_grade(overall)
+        bind(self.eq_overall_lbl, "eq.overall", quality=t(grade),
+             value="—" if overall is None else int(round(overall)))
         self.eq_overall_lbl.setStyleSheet(
-            f"font-size: 16px; font-weight: bold; color: {sig_color};"
-            f"padding: 10px; background-color: #161b22; border: 1px solid {sig_color}; border-radius: 8px;"
+            f"font-size: 16px; font-weight: bold; color: {colour};"
+            f"padding: 10px; background-color: #161b22; border: 1px solid {colour}; border-radius: 8px;"
         )
-
         # Per-sensor contact quality
         # CQ values: 0=No Signal, 1=Bad, 2=Poor, 3=Fair, 4=Good
         cq_colors = {0: "#da3633", 1: "#da3633", 2: "#e3a01a", 3: "#58a6ff", 4: "#3fb950"}
         cq_keys = {0: "quality.none", 1: "quality.bad", 2: "quality.poor",
                    3: "quality.fair", 4: "quality.good"}
 
+        labels = getattr(self, "dev_sensor_labels", []) or []
+        keep = getattr(self, "_dev_keep_idx", None)
+        if keep is not None:
+            cq_list = [cq_list[i] for i in keep if i < len(cq_list)]
+        self.sensor_map.set_sensors(labels, cq_list)
+
         for i, cq_val in enumerate(cq_list):
-            sensor_name = f"S{i}"
+            # Real electrode names when Cortex has sent them; S0..Sn only as a
+            # fallback for a headset that reports quality without labels.
+            sensor_name = labels[i] if i < len(labels) else f"S{i}"
             cq_val_int = int(cq_val) if isinstance(cq_val, (int, float)) else 0
             color = cq_colors.get(cq_val_int, "#8b949e")
             cq_key = cq_keys.get(cq_val_int, "quality.short_unknown")
 
             if sensor_name not in self.eq_sensor_labels:
                 name_lbl = QLabel(sensor_name)
+                name_lbl.setToolTip(sensor_name)
                 name_lbl.setStyleSheet("font-weight: bold; font-size: 13px; color: #e6edf3;")
                 name_lbl.setFixedWidth(40)
 
@@ -3315,21 +4588,16 @@ class TelloControllerApp(QMainWindow):
             bind(status_lbl, cq_key)
             status_lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
 
-        # Determine if quality is good enough to start training
-        if cq_list:
-            avg_cq = sum(int(v) if isinstance(v, (int, float)) else 0 for v in cq_list) / len(cq_list)
-            good_enough = avg_cq >= 2.0 and signal >= 2
-        else:
-            good_enough = False
+        # Contact quality alone decides this. Wireless signal strength used to
+        # be part of it, which produced a warning about moving closer to the
+        # USB receiver on a screen that is about electrodes.
+        good_enough = overall is not None and overall >= 50
 
-        if good_enough:
-            bind(self.eq_status_lbl, "eq.ok")
-            self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #3fb950; margin-top: 10px;")
-            self.eq_next_btn.setEnabled(True)
-        else:
-            bind(self.eq_status_lbl, "eq.bad")
-            self.eq_status_lbl.setStyleSheet("font-size: 14px; color: #e3a01a; margin-top: 10px;")
-            self.eq_next_btn.setEnabled(False)
+        bind(self.eq_status_lbl, "eq.ok" if good_enough else "eq.bad")
+        self.eq_status_lbl.setStyleSheet(
+            "font-size: 14px; color: %s; margin-top: 10px;"
+            % ("#3fb950" if good_enough else "#e3a01a"))
+        self.eq_next_btn.setEnabled(good_enough)
 
     def _on_mc_config_update(self, data: dict):
         # The settings dialog and the inline panel both want this; keep a copy
@@ -3350,32 +4618,8 @@ class TelloControllerApp(QMainWindow):
 
     def _do_update_bci_telemetry(self, battery: int, signal: int):
         bind(self.bci_telem_lbl, "dash.headset", battery=battery, signal=signal)
-
-    def _override_action_for_test(self):
-        if not self.drone_client: return
-        original_execute = self.drone_client.drone.execute_action
-        
-        def test_execute(action, auto_release_time=0.0):
-            was_flying = self.drone_client.drone.is_flying
-            original_execute(action, auto_release_time)
-            is_flying = self.drone_client.drone.is_flying
-            
-            def _update_ui():
-                ignored = (
-                    (action == "TakeOff" and was_flying and is_flying)
-                    or (action in ["Land", "EmergencyStop"] and not was_flying and not is_flying)
-                    or (action.startswith("Flip") and not is_flying)
-                )
-                key = "test.last_command_ignored" if ignored else "test.last_command"
-                bind(self.last_action_lbl, key, action=action)
-                if is_flying and not was_flying:
-                    bind(self.virtual_flight_state_lbl, "test.flying")
-                    self.virtual_flight_state_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #3fb950;")
-                elif not is_flying and was_flying:
-                    bind(self.virtual_flight_state_lbl, "test.landed")
-                    self.virtual_flight_state_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #8b949e;")
-            QTimer.singleShot(0, _update_ui)
-        self.drone_client.drone.execute_action = test_execute
+        # Cortex sends 0 before the headset has reported a real reading.
+        self._pills_battery(battery if battery else None)
 
     def reset_headset(self):
         if self.drone_client:
@@ -3443,15 +4687,13 @@ class TelloControllerApp(QMainWindow):
                 self.rc_lbl.setText(f"RC: lr={lr:+4d}  fb={fb:+4d}  ud={ud:+4d}  yaw={yaw:+4d}")
                 if self.stacked_widget.currentIndex() == PAGE_TEST:
                     self.drone_sim.update_rc(lr, fb, ud, yaw)
-                    self.test_yaw_bar.setValue(yaw)
-                    self.test_fb_bar.setValue(fb)
                 
                 # Update MC Dashboard Indicator
                 action = getattr(self.drone_client.drone, 'last_executed_action', None)
                 action_time = getattr(self.drone_client.drone, 'last_action_time', 0.0)
                 now = time.time()
                 if action and (now - action_time) < 2.0:
-                    bind(self.dash_mc_lbl, "dash.mc", action=action)
+                    bind(self.dash_mc_lbl, "dash.mc", action=drone_action(action))
                     self.dash_mc_lbl.setStyleSheet(
                         "background-color: #1f6feb; border: 1px solid #58a6ff; border-radius: 6px;"
                         "padding: 8px 12px; color: #ffffff; font-size: 14px; font-weight: bold;"
@@ -3462,10 +4704,10 @@ class TelloControllerApp(QMainWindow):
                         "background-color: #0d1117; border: 1px solid #30363d; border-radius: 6px;"
                         "padding: 8px 12px; color: #8b949e; font-size: 14px; font-weight: bold;"
                     )
-            
-            mot_str = self.drone_client.latest_raw_mot[:120] + "..." if len(self.drone_client.latest_raw_mot) > 120 else self.drone_client.latest_raw_mot
-            self.raw_mot_lbl.setText(f"MOT: {mot_str}")
-            self.raw_com_lbl.setText(f"COM: {self.drone_client.latest_raw_com}")
+
+            # The raw MOT/COM dump moved out with the side column. Both streams
+            # are still printed to the log pane, which is where they were
+            # actually read from when debugging.
 
         # Update Drone Dashboard Stats
         if self.tello and self.stacked_widget.currentIndex() == PAGE_DASHBOARD:
@@ -3645,6 +4887,7 @@ class TelloControllerApp(QMainWindow):
     def log(self, msg: str):
         ts = time.strftime("%H:%M:%S")
         formatted = f"[{ts}] {msg.strip()}"
+        applog.write(msg)
         
         # Append to both terminals
         if hasattr(self, 'bci_log_terminal'):
@@ -3661,7 +4904,14 @@ class TelloControllerApp(QMainWindow):
     def _append_log(self, msg: str):
         self.log(msg)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        banner = getattr(self, "reconnect_banner", None)
+        if banner is not None and banner.isVisible():
+            banner.setGeometry(self.rect())
+
     def closeEvent(self, event):
+        applog.write("window closed, shutting down")
         sys.stdout = self.original_stdout
         if self.drone_client:
             self.drone_client.running = False
@@ -3687,6 +4937,7 @@ class FullscreenResultDialog(QDialog):
     def __init__(self, entry, rank, total, entries, parent=None):
         super().__init__(parent)
         self.choice = "exit"          # what Esc / closing means
+        self._celebrate = False
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self.setModal(True)
         self.setStyleSheet("QDialog { background-color: rgba(2, 5, 10, 242); }")
@@ -3698,6 +4949,16 @@ class FullscreenResultDialog(QDialog):
         self.stack.addWidget(self._build_result(entry, rank, total, entries))
         self.stack.addWidget(self._build_board(entry, entries))
         outer.addWidget(self.stack)
+
+        # Built after the pages, since _build_result decides whether this run
+        # earned a celebration. Started from showEvent so the dialog already has
+        # its final fullscreen size when the pieces are laid out.
+        self.confetti = ConfettiOverlay(self)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._celebrate:
+            QTimer.singleShot(0, self.confetti.start)
 
     # ── Result ───────────────────────────────────────────────────────────────
     def _build_result(self, entry, rank, total, entries):
@@ -3729,15 +4990,26 @@ class FullscreenResultDialog(QDialog):
         clock.setStyleSheet("font-size: 13px; color: #6e7681;")
         box.addWidget(clock)
 
-        if rank == 1 and total > 1:
-            rank_text, rank_colour = t("game.rank_first"), "#f1c40f"
-        else:
-            rank_text, rank_colour = t("game.rank", rank=rank, total=total), "#58a6ff"
-        rank_lbl = QLabel(rank_text)
-        rank_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        rank_lbl.setStyleSheet(
-            f"font-size: 22px; font-weight: bold; color: {rank_colour}; padding: 6px;")
-        box.addWidget(rank_lbl)
+        message, colour, self._celebrate = congratulation(rank, total)
+        if not message:
+            rank_lbl = QLabel(t("game.rank", rank=rank, total=total))
+            rank_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            rank_lbl.setStyleSheet(
+                "font-size: 22px; font-weight: bold; color: #58a6ff; padding: 6px;")
+            box.addWidget(rank_lbl)
+        if message:
+            congrats = QLabel(message)
+            congrats.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            congrats.setWordWrap(True)
+            congrats.setStyleSheet(
+                f"font-size: 26px; font-weight: bold; color: {colour}; padding: 2px;")
+            box.addWidget(congrats)
+
+            mind = QLabel(t("game.mind_message"))
+            mind.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            mind.setWordWrap(True)
+            mind.setStyleSheet("font-size: 16px; color: #bc8cff; padding-bottom: 4px;")
+            box.addWidget(mind)
 
         podium = QWidget()
         podium.setFixedWidth(430)
@@ -4085,12 +5357,19 @@ class SettingsDialog(QDialog):
         return self.config
 
 def main():
+    # Before anything else, so a failure during construction is still recorded.
+    path = applog.start()
+    applog.install_excepthook()
+    print(f"[log] writing to {path}", flush=True)
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
     window = TelloControllerApp()
     window.show()
-    sys.exit(app.exec())
+    code = app.exec()
+    applog.close()
+    sys.exit(code)
 
 if __name__ == "__main__":
     main()

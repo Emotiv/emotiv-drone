@@ -1,11 +1,14 @@
 {
-    "device_id": "MN8-A001",
-    "profile_name": "mn8",
+    "language": "zh",
+    "auto_connect": true,
+    "device_id": "INSIGHT2-A3D20832",
+    "profile_name": "",
     "simulate": false,
     "fix_indices": false,
     "sensitivity": 0.5,
     "deadzone": 0.02,
     "smoothing_window": 4,
+    "invert_yaw": false,
     "max_speed": 69,
     "altitude_hold": true,
     "yaw_sensitivity": 0.5,
@@ -75,11 +78,19 @@
                     "auto_release": 0
                 }
             ]
-        }
+        },
+        "INSIGHT2": {
+            "sens_left": 40.0,
+            "sens_right": 40.0
+        },
+        "INSIGHT": {
+            "sens_left": 40.0,
+            "sens_right": 40.0
+        },
+        "EPOCX": {}
     },
-    "sens_left": 20.0,
-    "sens_right": 20.0,
+    "sens_left": 40.0,
+    "sens_right": 40.0,
     "sens_fwd": 25.0,
-    "sens_back": 25.0,
-    "invert_yaw": true
+    "sens_back": 25.0
 }
