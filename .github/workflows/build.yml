@@ -12,6 +12,11 @@ jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    # Creating the release for a v* tag writes to the repository. Without this
+    # the token is read-only and the attach step fails with
+    # "Resource not accessible by integration" (403).
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -19,9 +24,11 @@ jobs:
           - os: macos-14
             label: macOS (Apple Silicon)
             artifact: EMOTIV-Drone-BCI-macos-arm64
+            package: "*.dmg"
           - os: windows-latest
             label: Windows (x64)
             artifact: EMOTIV-Drone-BCI-windows-x64
+            package: "*.zip"
 
     steps:
       - uses: actions/checkout@v4
@@ -99,18 +106,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            *.dmg
-            *.zip
+          path: ${{ matrix.package }}
           if-no-files-found: error
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            *.dmg
-            *.zip
+          files: ${{ matrix.package }}
           body: |
             Unsigned builds — see the README for how to open them past
             Gatekeeper (macOS) and SmartScreen (Windows).
