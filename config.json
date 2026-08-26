@@ -8,6 +8,10 @@
     "sensitivity": 0.5,
     "deadzone": 0.02,
     "smoothing_window": 4,
+    "sens_left": 40.0,
+    "sens_right": 40.0,
+    "sens_fwd": 25.0,
+    "sens_back": 25.0,
     "invert_yaw": false,
     "max_speed": 69,
     "altitude_hold": true,
@@ -88,9 +92,5 @@
             "sens_right": 40.0
         },
         "EPOCX": {}
-    },
-    "sens_left": 40.0,
-    "sens_right": 40.0,
-    "sens_fwd": 25.0,
-    "sens_back": 25.0
+    }
 }
