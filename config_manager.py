@@ -29,6 +29,14 @@ DEFAULT_CONFIG = {
     "deadzone": 0.02,
     "smoothing_window": 4,
 
+    # Head-tilt response per direction. Without these the app fell back to a
+    # literal in _apply_config_to_client, so a fresh install flew differently
+    # from a tuned checkout for no visible reason.
+    "sens_left": 40.0,
+    "sens_right": 40.0,
+    "sens_fwd": 25.0,
+    "sens_back": 25.0,
+
     # Turning the head left should steer left. This stays False for every
     # headset except the ones that report yaw the other way round — MN8 sets it
     # in its device profile below. It used to be missing here and switched on
@@ -42,13 +50,24 @@ DEFAULT_CONFIG = {
     "yaw_sensitivity": 0.5,   # Multiplier for yaw (rotation) control
     "throttle_sensitivity": 0.5,  # Multiplier for altitude control
 
-    # Mental Command Mapping for Drone
-    # Actions: None, TakeOff, Land, FlipForward, FlipBack, FlipLeft, FlipRight, EmergencyStop
+    # Mental Command Mapping
+    # Actions: None, TakeOff, Land, FlipForward, FlipBack, FlipLeft, FlipRight,
+    #          EmergencyStop, MoveForward/Back/Left/Right/Up/Down
+    #
+    # The trained command flies the drone forward. These used to default to the
+    # real-drone set (push = TakeOff, pull = Land, and so on), which is wrong
+    # for the simulator this app now is: on a machine with no config.json yet
+    # — every fresh install — thinking "push" made the drone take off instead
+    # of moving, and the in-scene hint could not name the command either,
+    # because it looks for whichever one maps to MoveForward.
+    #
+    # Only push is bound. The player trains neutral and push; binding commands
+    # nobody trained just invites accidental triggers.
     "mental_mappings": [
-        {"command": "push", "action": "TakeOff", "threshold": 0.6, "auto_release": 0},
-        {"command": "pull", "action": "Land", "threshold": 0.6, "auto_release": 0},
-        {"command": "drop", "action": "EmergencyStop", "threshold": 0.5, "auto_release": 0},
-        {"command": "lift", "action": "FlipForward", "threshold": 0.7, "auto_release": 0}
+        {"command": "push", "action": "MoveForward", "threshold": 0.5, "auto_release": 0},
+        {"command": "pull", "action": "None", "threshold": 0.5, "auto_release": 0},
+        {"command": "drop", "action": "None", "threshold": 0.5, "auto_release": 0},
+        {"command": "lift", "action": "None", "threshold": 0.5, "auto_release": 0}
     ],
 
     # Device Specific Overrides (e.g., {"MN8": {"invert_yaw": true, ...}})
