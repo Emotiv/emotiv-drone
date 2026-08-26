@@ -30,7 +30,7 @@ AppSupportURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-; Per-user install by default, so no UAC prompt and no admin rights needed —
+; Per-user install by default, so no UAC prompt and no admin rights needed --
 ; this gets handed to people on machines they may not administer.
 PrivilegesRequiredOverridesAllowed=dialog
 PrivilegesRequired=lowest
@@ -45,8 +45,14 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 
 [Languages]
+; English only. Inno Setup ships about two dozen European translations in
+; Languages\; Chinese is a community translation distributed separately, so
+; referencing ChineseSimplified.isl fails on any stock install -- including the
+; CI runner. This is the installer wizard only; the application itself is still
+; English and Chinese. To offer a Chinese wizard, drop ChineseSimplified.isl into
+; this directory and add:
+;   Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
@@ -69,6 +75,6 @@ Filename: "{app}\{#AppExe}"; \
 
 [UninstallDelete]
 ; Settings and the log live in %APPDATA%\EmotivDrone and are deliberately left
-; behind on uninstall — the leaderboard is in there, and a reinstall should not
+; behind on uninstall -- the leaderboard is in there, and a reinstall should not
 ; wipe the scores. Only what the installer itself created is removed.
 Type: filesandordirs; Name: "{app}\_internal"
