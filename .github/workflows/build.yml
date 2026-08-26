@@ -28,7 +28,7 @@ jobs:
           - os: windows-latest
             label: Windows (x64)
             artifact: EMOTIV-Drone-BCI-windows-x64
-            package: "*.zip"
+            package: "*-setup.exe"
 
     steps:
       - uses: actions/checkout@v4
@@ -94,11 +94,40 @@ jobs:
           Stop-Process -Id $p.Id -Force
         shell: pwsh
 
-      - name: Package Windows zip
+      - name: Build Windows installer
         if: runner.os == 'Windows'
         run: |
-          Compress-Archive -Path "dist/EMOTIV Drone BCI/*" `
-            -DestinationPath "EMOTIV-Drone-BCI-windows-x64.zip"
+          # The tag without its leading v, so the installer carries a real
+          # version; a manual run has no tag and falls back to 0.0.0.
+          $version = "0.0.0"
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $version = $env:GITHUB_REF -replace "^refs/tags/v", ""
+          }
+          Write-Host "building installer for version $version"
+
+          # Inno Setup is on the windows runner image, but the path has moved
+          # between image versions — look for it rather than hard-coding one,
+          # and install it if a future image drops it entirely.
+          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue |
+                  Select-Object -ExpandProperty Source
+          if (-not $iscc) {
+            $iscc = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) {
+            Write-Host "Inno Setup not on the image; installing it"
+            choco install innosetup --no-progress -y
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          Write-Host "using $iscc"
+
+          & $iscc "/DAppVersion=$version" packaging/EmotivDrone.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          Get-ChildItem *-setup.exe | ForEach-Object {
+            Write-Host ("{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB))
+          }
         shell: pwsh
 
       # --------------------------------------------------------------- Upload

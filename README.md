@@ -423,8 +423,15 @@ printed the raw identifier in every language.
 
 ## 📦 Desktop Builds
 
-Prebuilt, **unsigned** bundles for macOS (Apple Silicon) and Windows (x64) are
-produced by GitHub Actions — no Python install needed to run them.
+Prebuilt, **unsigned** installers for macOS (Apple Silicon) and Windows (x64)
+are produced by GitHub Actions — no Python install needed to run them. One file
+per platform: a `.dmg` for macOS, a `setup.exe` for Windows.
+
+Windows is packaged as an installer rather than a bare `.exe` on purpose. The
+PyInstaller build is *onedir* — the executable needs the `_internal` folder
+beside it — and the alternative, a single-file build, unpacks PyQt6, OpenCV and
+PyAV into `%TEMP%` on every launch, which costs 10–20 seconds of cold start. The
+installer puts the folder down once and keeps startup at a couple of seconds.
 
 **Getting one:** open the **Actions** tab → *Build desktop app* → pick a run →
 download `EMOTIV-Drone-BCI-macos-arm64` or `EMOTIV-Drone-BCI-windows-x64`.
@@ -438,8 +445,10 @@ Pushing a `v*` tag also attaches both to a GitHub release.
   ```bash
   xattr -dr com.apple.quarantine "/Applications/EMOTIV Drone BCI.app"
   ```
-- **Windows** — unzip anywhere, run `EMOTIV Drone BCI.exe`. On the SmartScreen
-  prompt choose **More info** → **Run anyway**.
+- **Windows** — run `EMOTIV-Drone-BCI-windows-x64-setup.exe`. On the SmartScreen
+  prompt choose **More info** → **Run anyway**. It installs per user, so it does
+  not ask for administrator rights, and it adds a Start Menu entry and an
+  uninstaller.
 
 EMOTIV Launcher must be running before you start the app, and it will ask you to
 approve access on first launch. Settings are stored per user, not next to the
@@ -453,7 +462,15 @@ pip install -r requirements.txt pyinstaller
 pyinstaller packaging/EmotivDrone.spec --noconfirm
 ```
 
-Output lands in `dist/`. A build only ever targets the OS it runs on — the
+Output lands in `dist/`. To wrap the Windows build into its installer, with
+[Inno Setup](https://jrsoftware.org/isinfo.php) on PATH:
+
+```bash
+iscc packaging/EmotivDrone.iss
+```
+
+That writes `EMOTIV-Drone-BCI-windows-x64-setup.exe` to the repository root.
+Without `/DAppVersion=...` it is stamped `0.0.0`; CI passes the tag. A build only ever targets the OS it runs on — the
 Windows bundle has to come from a Windows machine (or the CI runner).
 
 ---
