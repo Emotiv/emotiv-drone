@@ -91,6 +91,7 @@
             "sens_left": 40.0,
             "sens_right": 40.0
         },
-        "EPOCX": {}
+        "EPOCX": {},
+        "EPOC": {}
     }
 }

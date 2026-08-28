@@ -4984,6 +4984,7 @@ class TelloControllerApp(QMainWindow):
         if self.drone_client and self.drone_client.program:
             qp = self.drone_client.program.quaternion_processor
             qp.invert_yaw = self.config.get("invert_yaw", False)
+            qp.invert_pitch = self.config.get("invert_pitch", False)
             qp.sens_left = self.config.get("sens_left", 70.0)
             qp.sens_right = self.config.get("sens_right", 70.0)
             qp.sens_fwd = self.config.get("sens_fwd", 50.0)

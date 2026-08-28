@@ -40,6 +40,10 @@ DEFAULT_CONFIG = {
     "sens_fwd": 25.0,
     "sens_back": 25.0,
 
+    # Tilting forward should fly forward. Per-model overrides live in
+    # DEVICE_DEFAULTS alongside invert_yaw.
+    "invert_pitch": False,
+
     # Turning the head left should steer left. This stays False for every
     # headset except the ones that report yaw the other way round — MN8 sets it
     # in its device profile below. It used to be missing here and switched on
@@ -107,6 +111,22 @@ class ConfigManager:
 
         return config
 
+    # Per-model motion defaults. Which way a headset reports yaw depends on how
+    # it sits on the head, so this is a property of the hardware rather than of
+    # anyone's installation. EPOC sits on a back strap and MN8 in the ears; both
+    # report yaw opposite to Insight, which is the one the base config suits.
+    DEVICE_DEFAULTS = {
+        "MN8": {
+            "invert_yaw": True,
+            "sens_left": 30.0, "sens_right": 30.0,
+            "sens_fwd": 25.0, "sens_back": 25.0,
+        },
+        "EPOC": {"invert_yaw": True},
+        "EPOCX": {"invert_yaw": True},
+        "EPOCPLUS": {"invert_yaw": True},
+        "EPOCFLEX": {"invert_yaw": True},
+    }
+
     # The mapping shipped before the app became a simulator. Anyone who ran an
     # earlier build still has it in their saved config, and a saved config wins
     # over DEFAULT_CONFIG — so fixing the default alone left every existing
@@ -131,6 +151,19 @@ class ConfigManager:
         """
         changed = False
         fresh = [dict(m) for m in DEFAULT_CONFIG["mental_mappings"]]
+
+        # A device profile created before this table existed is an empty dict,
+        # so it silently inherited the base — which is how an EPOC X ended up
+        # steering backwards. Fill in only keys the profile does not already
+        # set, so a value someone chose is never overwritten.
+        for model, defaults in ConfigManager.DEVICE_DEFAULTS.items():
+            profile = (config.get("device_profiles") or {}).get(model)
+            if profile is None:
+                continue
+            for key, value in defaults.items():
+                if key not in profile:
+                    profile[key] = value
+                    changed = True
 
         if ConfigManager._is_legacy_mapping(config.get("mental_mappings")):
             config["mental_mappings"] = [dict(m) for m in fresh]
@@ -171,14 +204,7 @@ class ConfigManager:
             device_config.update(device_profiles[device_type])
         else:
             # Create a default profile for this new device type
-            profile = {}
-            if device_type == "MN8":
-                # MN8-specific default overrides
-                profile["invert_yaw"] = True
-                profile["sens_left"] = 30.0
-                profile["sens_right"] = 30.0
-                profile["sens_fwd"] = 25.0
-                profile["sens_back"] = 25.0
+            profile = dict(ConfigManager.DEVICE_DEFAULTS.get(device_type, {}))
             
             config.setdefault("device_profiles", {})[device_type] = profile
             device_config.update(profile)

@@ -52,6 +52,9 @@ class QuaternionProcessor:
         
         self.movement_deadzone: float = 0.02
         self.invert_yaw: bool = False
+        # Forward/back, separately from left/right: a headset can disagree with
+        # the base orientation on one axis without disagreeing on both.
+        self.invert_pitch: bool = False
         self.current_sensitivity: float = self.base_sensitivity
 
         self._calibration_quaternion: Quaternion = Quaternion.identity()
@@ -129,6 +132,8 @@ class QuaternionProcessor:
             
         if self.invert_yaw:
             relative_yaw = -relative_yaw
+        if self.invert_pitch:
+            relative_pitch = -relative_pitch
 
         # Apply independent directional sensitivity
         h_sens = self.sens_right if relative_yaw > 0 else self.sens_left
