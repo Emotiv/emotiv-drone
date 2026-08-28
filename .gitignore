@@ -11,6 +11,8 @@ build/
 dist/
 *.dmg
 *.zip
+# Installers built from dist/ — 80 MB+ each, and rebuilt from source anyway
+*-setup.exe
 
 # Diagnostic log written next to the source when running from a checkout
 emotiv-drone.log
