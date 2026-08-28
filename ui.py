@@ -2407,6 +2407,20 @@ class TelloControllerApp(QMainWindow):
         onto a results screen for a round they walked away from. _finish_ring_run
         stops the timer before it navigates, so a normal finish never lands here.
         """
+        if index == PAGE_PROFILE and not (self.config.get("profile_name") or "").strip():
+            # Nobody is mid-session, so whoever arrives here is a new player and
+            # the box must be empty. It used to still hold the last person's
+            # name: the handoff cleared config["profile_name"] but never the
+            # field, so the next participant either played under someone else's
+            # name or had to clear it themselves. Guarded on there being no
+            # active profile, so stepping back here mid-flow keeps what was
+            # typed.
+            self.new_profile_input.clear()
+            bind(self.profile_status_lbl, "profile.hint")
+            self.profile_status_lbl.setStyleSheet(
+                "color: #8b949e; font-size: 11px; font-style: italic; padding: 0 2px;")
+            self.new_profile_input.setFocus()
+
         if index == PAGE_TEST:
             self._refresh_player_name()
 
