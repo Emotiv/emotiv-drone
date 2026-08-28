@@ -88,12 +88,10 @@ class Cortex(Dispatcher):
                 'mc_training_threshold_done', 'create_record_done', 'stop_record_done','warn_cortex_stop_all_sub', 'warn_record_post_processing_done',
                 'inject_marker_done', 'update_marker_done', 'export_record_done', 'new_data_labels', 
                 'close_session_done', 'connection_failed', 'access_right_rejected', 'headset_not_found',
-                'headset_disconnected',                 'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
+                'headset_disconnected', 'authorize_done',                 'new_com_data', 'new_fe_data', 'new_eeg_data', 'new_mot_data', 'new_dev_data', 
                 'new_met_data', 'new_pow_data', 'new_sys_data', 'headset_connected', 'headset_scanning_finished',
                 'subscribe_done', 'access_right_pending', 'query_headset_done']
     def __init__(self, client_id, client_secret, debug_mode=False, **kwargs):
-        client_id = "JRn9yb9uZzo6z4ADqnN8bWhIrOQbwf8ZdmIyuc9H"
-        client_secret = "gU2pSgmLFjpMgkTcGq5HUwgeuERaaKaJYbxgi8i1q1JvDd9XDLbJffZMO3bzb4qDiKl5WRtkR0yyb8yiLzHmr8aPesW9kT9W7q2flEFDNJdfrNwyTLehDZSwbFovbSFm"  
         self.session_id = ''
         self.headset_id = ''
         # Whether authorize() has ever succeeded on this socket. Distinguishes a
@@ -106,15 +104,8 @@ class Cortex(Dispatcher):
         self.license = ''
         self.isHeadsetConnected = False
 
-        if client_id == '':
-            raise ValueError('Empty your_app_client_id. Please fill in your_app_client_id before running the example.')
-        else:
-            self.client_id = client_id
-
-        if client_secret == '':
-            raise ValueError('Empty your_app_client_secret. Please fill in your_app_client_secret before running the example.')
-        else:
-            self.client_secret = client_secret
+        self.client_id = client_id or ''
+        self.client_secret = client_secret or ''
 
         for key, value in kwargs.items():
             print('init {0} - {1}'.format(key, value))
@@ -208,6 +199,11 @@ class Cortex(Dispatcher):
             print("Authorize successfully.")
             self.authorized = True
             self.auth = result_dic['cortexToken']
+            # The credentials just proved themselves against Cortex, and the
+            # user has approved the app in Launcher. Only now are they worth
+            # writing to disk.
+            self.emit('authorize_done', client_id=self.client_id,
+                      client_secret=self.client_secret)
             # Fetch the profile list so the UI can show a dropdown
             self.query_profile()
             # Query headsets directly; refresh is only triggered if none are found

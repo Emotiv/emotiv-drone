@@ -22,11 +22,19 @@ I18N = {
         "header.language": "🌐 Language",
 
         # ── Step 1 · authentication ──────────────────────────────────────────
-        "auth.title": "Connection problem",
-        "auth.intro":
-            "The app could not reach EMOTIV Cortex. Work through the checks "
-            "below — the credentials at the bottom are only needed if support "
-            "has asked you to change them.",
+        "auth.title": "Connect to EMOTIV Cortex",
+        "auth.intro": "This is asked once. Enter your EMOTIV application credentials, approve the app in EMOTIV Launcher, and the app remembers both from then on.",
+        "log.credentials_saved": "Credentials accepted and saved. They will not be asked for again.",
+        "auth.unreachable": "EMOTIV Cortex did not respond. Check that EMOTIV Launcher is running and signed in.",
+        "auth.both_required": "Enter both the Client ID and the Client Secret.",
+        "auth.awaiting_approval": "Now approve this application in EMOTIV Launcher. Open Launcher, accept the request, and this screen continues on its own.",
+        "auth.waiting_approval": "Waiting for EMOTIV Launcher…",
+        "auth.failed": "Could not connect: {detail}",
+        "auth.approval_note": "After you press Connect, EMOTIV Launcher will ask you to approve this application. Approve it there — it is only asked the first time.",
+        "auth.connecting": "Connecting…",
+        "auth.where": "Create an application at emotiv.com to get these, then copy the Client ID and Client Secret here.",
+        "auth.client_secret.hint": "Client Secret",
+        "auth.client_id.hint": "Client ID from your EMOTIV application",
         "auth.check_launcher":
             "1. Is EMOTIV Launcher running and signed in? Start it, then press "
             "Retry Connection.",
@@ -35,7 +43,7 @@ I18N = {
             "approval prompt the first time — approve it, then press Retry "
             "Connection.",
         "auth.reason": "Reported problem: {detail}",
-        "auth.group": "Credentials (rarely the problem)",
+        "auth.group": "EMOTIV application credentials",
         "auth.checks_group": "Check these first",
         "auth.client_id": "Client ID:",
         "auth.client_secret": "Client Secret:",
@@ -44,7 +52,7 @@ I18N = {
         "auth.auto_connect.tip":
             "Once a Client ID and Secret are saved, skip this screen and start "
             "connecting as soon as the app opens.",
-        "auth.connect": "Authenticate",
+        "auth.connect": "Connect",
         "auth.retry": "Retry Connection",
         "auth.retrying": "Reconnecting…",
         "auth.logs": "BCI Connection Logs:",
@@ -444,6 +452,17 @@ I18N = {
 
     "zh": {
         "lang.name": "中文",
+        "log.credentials_saved": "凭据已通过验证并保存，下次不会再询问。",
+        "auth.unreachable": "EMOTIV Cortex 无响应。请确认 EMOTIV Launcher 正在运行并已登录。",
+        "auth.both_required": "请同时填写 Client ID 与 Client Secret。",
+        "auth.awaiting_approval": "请在 EMOTIV Launcher 中批准本应用。打开 Launcher 并接受请求后，本页面会自动继续。",
+        "auth.waiting_approval": "正在等待 EMOTIV Launcher…",
+        "auth.failed": "无法连接：{detail}",
+        "auth.approval_note": "点击“连接”后，EMOTIV Launcher 会请求您批准本应用。请在那里批准 —— 只需首次批准一次。",
+        "auth.connecting": "正在连接…",
+        "auth.where": "请在 emotiv.com 创建一个应用以获取凭据，然后将 Client ID 与 Client Secret 复制到这里。",
+        "auth.client_secret.hint": "Client Secret",
+        "auth.client_id.hint": "来自您 EMOTIV 应用的 Client ID",
 
         # ── Shell ────────────────────────────────────────────────────────────
         "app.title": "Tello 脑机接口控制器",
@@ -451,24 +470,22 @@ I18N = {
         "header.language": "🌐 语言",
 
         # ── Step 1 · authentication ──────────────────────────────────────────
-        "auth.title": "连接出现问题",
-        "auth.intro":
-            "应用无法连接到 EMOTIV Cortex。请依次检查以下项目 —— "
-            "只有在技术支持要求更改时，才需要修改下方的凭据。",
+        "auth.title": "连接 EMOTIV Cortex",
+        "auth.intro": "只需设置一次。请输入您的 EMOTIV 应用凭据，并在 EMOTIV Launcher 中批准本应用，之后应用会自动记住。",
         "auth.check_launcher":
             "1. EMOTIV Launcher 是否已运行并已登录？请先启动它，然后点击“重新连接”。",
         "auth.check_approved":
             "2. 本应用是否已获批准？EMOTIV Launcher 首次会弹出授权提示 —— "
             "请批准后点击“重新连接”。",
         "auth.reason": "报告的问题：{detail}",
-        "auth.group": "凭据（通常不是问题所在）",
+        "auth.group": "EMOTIV 应用凭据",
         "auth.checks_group": "请先检查以下项目",
         "auth.client_id": "Client ID：",
         "auth.client_secret": "Client Secret：",
         "auth.simulate": "模拟模式（无需头戴设备即可测试界面）",
         "auth.auto_connect": "启动时自动连接",
         "auth.auto_connect.tip": "保存 Client ID 与 Secret 后，打开应用即跳过本页面并直接开始连接。",
-        "auth.connect": "授权",
+        "auth.connect": "连接",
         "auth.retry": "重新连接",
         "auth.retrying": "正在重新连接…",
         "auth.logs": "脑机接口连接日志：",

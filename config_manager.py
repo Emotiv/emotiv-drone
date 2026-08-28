@@ -15,8 +15,11 @@ DEFAULT_CONFIG = {
     "auto_connect": True,
 
     # Emotiv Cortex API
-    "client_id": "YOUR_CLIENT_ID",
-    "client_secret": "YOUR_CLIENT_SECRET",
+    # Empty until the user enters their own and Cortex accepts them. These
+    # used to be the literal strings YOUR_CLIENT_ID / YOUR_CLIENT_SECRET, which
+    # looked like filled-in values to anything checking for emptiness.
+    "client_id": "",
+    "client_secret": "",
     "device_id": "",
     "profile_name": "",
 
@@ -95,11 +98,53 @@ class ConfigManager:
             except Exception as e:
                 print(f"Error loading credentials: {e}")
                 
+        migrated = ConfigManager.migrate(config)
+
         # Ensure we always save files if they don't exist
-        if not os.path.exists(CONFIG_FILE) or not os.path.exists(CREDENTIALS_FILE):
+        if (migrated or not os.path.exists(CONFIG_FILE)
+                or not os.path.exists(CREDENTIALS_FILE)):
             ConfigManager.save_config(config)
 
         return config
+
+    # The mapping shipped before the app became a simulator. Anyone who ran an
+    # earlier build still has it in their saved config, and a saved config wins
+    # over DEFAULT_CONFIG — so fixing the default alone left every existing
+    # install thinking "push" meant take off.
+    LEGACY_MENTAL_MAPPINGS = [
+        ("push", "TakeOff"), ("pull", "Land"),
+        ("drop", "EmergencyStop"), ("lift", "FlipForward"),
+    ]
+
+    @staticmethod
+    def _is_legacy_mapping(mappings) -> bool:
+        """True only for the untouched old default, never a deliberate choice."""
+        pairs = [(m.get("command"), m.get("action")) for m in (mappings or [])]
+        return pairs == ConfigManager.LEGACY_MENTAL_MAPPINGS
+
+    @staticmethod
+    def migrate(config: dict) -> bool:
+        """Bring a saved config forward. Returns True if anything changed.
+
+        Deliberately conservative: only an exact match for the old default is
+        replaced, so anyone who set their own mapping keeps it.
+        """
+        changed = False
+        fresh = [dict(m) for m in DEFAULT_CONFIG["mental_mappings"]]
+
+        if ConfigManager._is_legacy_mapping(config.get("mental_mappings")):
+            config["mental_mappings"] = [dict(m) for m in fresh]
+            changed = True
+
+        for profile in (config.get("device_profiles") or {}).values():
+            if ConfigManager._is_legacy_mapping(profile.get("mental_mappings")):
+                profile["mental_mappings"] = [dict(m) for m in fresh]
+                changed = True
+
+        if changed:
+            print("[config] migrated the old take-off mapping to move-forward",
+                  flush=True)
+        return changed
 
     @staticmethod
     def save_config(config: dict):

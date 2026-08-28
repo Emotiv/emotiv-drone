@@ -94,6 +94,7 @@ class TelloDroneClient:
         self.c.bind(connection_failed=self.on_connection_failed)
         self.c.bind(headset_not_found=self.on_headset_not_found)
         self.c.bind(headset_disconnected=self.on_headset_disconnected)
+        self.c.bind(authorize_done=self.on_authorize_done)
         self.c.bind(query_headset_done=self.on_query_headset_done)
         self.c.bind(query_profile_done=self.on_query_profile_done)
         self.c.bind(load_unload_profile_done=self.on_load_unload_profile_done)
@@ -124,6 +125,25 @@ class TelloDroneClient:
             if self.bci_status_callback:
                 # Give a quick temporary status update, then it will revert to active
                 self.bci_status_callback(msg)
+
+    CALLBACK_ATTRS = (
+        'bci_status_callback', 'bci_telemetry_callback', 'profiles_callback',
+        'headsets_callback', 'training_callback', 'dev_data_callback',
+        'mc_config_callback', 'brainmap_callback', 'profile_admin_callback',
+        'dev_labels_callback',
+    )
+
+    def detach_callbacks(self):
+        """Stop this client from talking to the UI.
+
+        A replaced client keeps its websocket thread alive for a moment, and
+        its on_close still fires. Without this, the corpse of a failed
+        connection attempt reports "connection failed" over the top of the
+        attempt that replaced it — which is what put the credentials screen
+        back up in the middle of a successful retry.
+        """
+        for attr in self.CALLBACK_ATTRS:
+            setattr(self, attr, None)
 
     def close(self):
         self.running = False
@@ -288,12 +308,33 @@ class TelloDroneClient:
             print(f"Executing mental action: {act}", flush=True)
             self.drone.execute_action(act, auto_release_time)
 
+    # Cortex codes that mean "these credentials will never work", as opposed to
+    # something transient. -32001/-32002 cover an unknown or wrong client id or
+    # secret; -32004 is an app that is not authorised for this user.
+    CREDENTIAL_ERRORS = {-32001, -32002, -32004, -32012}
+
     def on_inform_error(self, *args, **kwargs):
-        error_data = kwargs.get('error_data')
+        error_data = kwargs.get('error_data') or {}
         error_msg = f"Cortex error: {error_data}"
         print(error_msg, flush=True)
-        if self.bci_status_callback:
+        if not self.bci_status_callback:
+            return
+
+        code = error_data.get('code') if isinstance(error_data, dict) else None
+        message = (error_data.get('message') if isinstance(error_data, dict)
+                   else str(error_data))
+        # Before authorize has ever succeeded, any error is a failure to get
+        # started, and the credentials screen is where the user can act on it.
+        if code in self.CREDENTIAL_ERRORS or not getattr(self.c, 'authorized', False):
+            self.bci_status_callback(f"AUTH_FAILED:{message or error_data}")
+        else:
             self.bci_status_callback(error_msg)
+
+    def on_authorize_done(self, *args, **kwargs):
+        """Credentials accepted and the app approved in EMOTIV Launcher."""
+        print("[auth] credentials accepted", flush=True)
+        if self.bci_status_callback:
+            self.bci_status_callback("AUTHORIZED:")
 
     def on_headset_disconnected(self, *args, **kwargs):
         """The headset dropped out while we were using it."""

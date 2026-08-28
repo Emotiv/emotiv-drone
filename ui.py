@@ -62,13 +62,6 @@ SHOW_REAL_DRONE = False
 # Listing everyone who came before just turns into clutter nobody prunes.
 SHOW_PROFILE_LIST = False
 
-# The credentials form is not a step anybody should have to walk through: the
-# Cortex client id/secret are baked into cortex.py, so the screen collects
-# nothing the app actually uses. It stays registered (page indices are fixed)
-# and is still shown automatically if a connection never gets off the ground,
-# which is the only case where a human has anything useful to type.
-SHOW_AUTH_PAGE = False
-
 # Whether motion tuning is reachable at all. The head-tilt and deadzone sliders
 # are no longer built into any page; this decides whether the ⚙ Configurations
 # dialog that still carries them is offered. Tuning these mid-demo is how a
@@ -2126,6 +2119,10 @@ class TelloControllerApp(QMainWindow):
         self.current_entry = None
         self.mc_active_actions = []
         self.mc_sensitivities = []
+        # Written to credentials.json the moment Cortex authorizes, once.
+        self._credentials_saved = False
+        # True between pressing Connect and EMOTIV Launcher being answered.
+        self._awaiting_approval = False
         self.dev_sensor_labels = []
         self._dev_keep_idx = None
         self._dev_overall_idx = None
@@ -2203,13 +2200,15 @@ class TelloControllerApp(QMainWindow):
         self.setup_page_gameover()
         self.setup_page_leaderboard()
 
-        # Never open on a page that is switched off. Auto-connect moves here
-        # anyway; this covers the case where it never runs.
-        if not SHOW_AUTH_PAGE:
-            self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
+        # _maybe_auto_connect decides between the credentials screen and the
+        # headset list as soon as the event loop is up.
 
         self.telem_timer = QTimer()
         self.telem_timer.timeout.connect(self.update_telemetry)
+
+    # Values that look filled in but are not. DEFAULT_CONFIG used to seed the
+    # first two, and older installs still carry them.
+    PLACEHOLDER_CREDENTIALS = {"", "YOUR_CLIENT_ID", "YOUR_CLIENT_SECRET"}
 
     def _credentials_ready(self) -> bool:
         """True when there is a real saved credential pair to connect with.
@@ -2219,31 +2218,107 @@ class TelloControllerApp(QMainWindow):
         """
         cid = (self.config.get("client_id") or "").strip()
         secret = (self.config.get("client_secret") or "").strip()
-        placeholders = {"", "YOUR_CLIENT_ID", "YOUR_CLIENT_SECRET"}
-        return cid not in placeholders and secret not in placeholders
+        return (cid not in self.PLACEHOLDER_CREDENTIALS
+                and secret not in self.PLACEHOLDER_CREDENTIALS)
 
     def _maybe_auto_connect(self):
-        """Skip the credentials form when we already know how to log in.
+        """Ask for credentials once; after that, connect without being asked.
 
-        Landing on a filled-in form and asking the user to press Authenticate is
-        pure friction once the credentials are stored — and this app is meant to
-        be handed between people, so every extra step gets paid repeatedly. The
-        form stays one click away via 'Back to Auth' on the headset screen.
+        The app ships with none, so the first launch stops on the credentials
+        screen. Once Cortex has accepted them they live in credentials.json and
+        every later launch goes straight to the headset list.
         """
         if self.simulate_cb.isChecked():
             return
-        if SHOW_AUTH_PAGE:
-            if not self.auto_connect_cb.isChecked():
-                return
-            if not self._credentials_ready():
-                return
-        else:
-            # cortex.py supplies its own client id/secret, so a missing pair in
-            # config.json is not a reason to stop — and with no form on screen,
-            # stopping would strand the user on a page they cannot see.
-            self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
+
+        if not self._credentials_ready():
+            self._show_credentials_page()
+            return
+
+        self.client_id_input.setText(self.config.get("client_id", ""))
+        self.client_secret_input.setText(self.config.get("client_secret", ""))
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
         self.log(t("log.auto_connecting"))
         self._start_bci()
+
+    def _show_credentials_page(self, error: str = "", waiting: bool = False):
+        """Land on the credentials screen.
+
+        Three states: asking for the first time, waiting on EMOTIV Launcher,
+        and reporting why the last attempt failed. Waiting is deliberately not
+        an error — approving the app is a step everyone goes through once, and
+        dressing it as a failure makes people think they typed something wrong.
+        """
+        if waiting:
+            bind(self.auth_reason_lbl, "auth.awaiting_approval")
+            self.auth_reason_lbl.setStyleSheet(
+                "font-size: 12px; color: #58a6ff; background-color: #0d2440;"
+                "border: 1px solid #1f6feb; border-radius: 6px; padding: 9px;")
+            self.auth_reason_lbl.setVisible(True)
+            bind(self.connect_bci_btn, "auth.waiting_approval")
+            self.connect_bci_btn.setEnabled(False)
+        elif error:
+            bind(self.auth_reason_lbl, "auth.failed", detail=error)
+            self.auth_reason_lbl.setStyleSheet(
+                "font-size: 12px; color: #f0883e; background-color: #1f1300;"
+                "border: 1px solid #e3a01a; border-radius: 6px; padding: 9px;")
+            self.auth_reason_lbl.setVisible(True)
+            self.connect_bci_btn.setEnabled(True)
+            bind(self.connect_bci_btn, "auth.connect")
+            applog.write(f"credentials screen shown: {error}")
+        else:
+            self.auth_reason_lbl.setVisible(False)
+            self.connect_bci_btn.setEnabled(True)
+            bind(self.connect_bci_btn, "auth.connect")
+
+        self.stacked_widget.setCurrentIndex(PAGE_AUTH)
+        if not waiting:
+            if not self.client_id_input.text().strip():
+                self.client_id_input.setFocus()
+            else:
+                self.client_secret_input.setFocus()
+
+    def _submit_credentials(self):
+        """Try the typed credentials. Saved only once Cortex accepts them."""
+        cid = self.client_id_input.text().strip()
+        secret = self.client_secret_input.text().strip()
+        if (cid in self.PLACEHOLDER_CREDENTIALS
+                or secret in self.PLACEHOLDER_CREDENTIALS):
+            self._show_credentials_page(t("auth.both_required"))
+            return
+
+        # Held in memory for now; _on_authorized writes them out once Cortex
+        # and EMOTIV Launcher have both said yes. Saving a bad pair would mean
+        # the next launch skips this screen and fails silently instead.
+        self.auth_reason_lbl.setVisible(False)
+        self.connect_bci_btn.setEnabled(False)
+        bind(self.connect_bci_btn, "auth.connecting")
+
+        # A fresh client each attempt: the previous one may be sitting on a
+        # dead socket or an unauthorised token.
+        if self.drone_client:
+            stale, self.drone_client = self.drone_client, None
+            # Silence it before closing: its socket outlives this call and
+            # would otherwise report the old failure into the new attempt.
+            self._quietly(stale.detach_callbacks)
+            threading.Thread(
+                target=lambda: self._quietly(stale.close), daemon=True).start()
+
+        self._conn_fail_detail = ""
+        QTimer.singleShot(250, self._start_bci)
+
+    def _on_authorized(self):
+        """Cortex accepted the credentials and Launcher approved the app."""
+        if self._credentials_saved:
+            return
+        self._credentials_saved = True
+        self._awaiting_approval = False
+        # Only now, with Cortex having accepted them, do these reach disk.
+        self.config["client_id"] = self.client_id_input.text().strip()
+        self.config["client_secret"] = self.client_secret_input.text().strip()
+        ConfigManager.save_config(self.config)
+        self.log(t("log.credentials_saved"))
+        applog.write("credentials accepted and saved")
 
     def _make_abandon_button(self) -> QPushButton:
         """Way out of training, back to the device list.
@@ -2373,90 +2448,126 @@ class TelloControllerApp(QMainWindow):
             self.hud_widget.update()
 
     def setup_page_auth(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        """Credentials, and the only screen shown before a headset is picked.
 
-        container = QWidget(); container.setFixedWidth(600)
-        c_layout = QVBoxLayout(container); c_layout.setSpacing(15)
+        Seen once: the app ships without credentials, so the first launch has
+        to ask. Once Cortex accepts them and the user approves the app in
+        EMOTIV Launcher they are written to credentials.json and this page is
+        skipped from then on — unless something stops the connection working,
+        in which case it comes back carrying the reason.
+        """
+        page = HeroBackdrop(HERO_FILE)
+        layout = QVBoxLayout(page)
+        layout.addStretch(1)
+
+        container = QWidget(); container.setFixedWidth(620)
+        c_layout = QVBoxLayout(container); c_layout.setSpacing(12)
+
+        mark = logo_label(height=LOGO_HERO_H)
+        if mark is not None:
+            c_layout.addWidget(mark, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         title = QLabel(); title.setObjectName("titleLabel")
         bind(title, "auth.title")
+        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         c_layout.addWidget(title)
 
         intro = bind(QLabel(), "auth.intro")
         intro.setWordWrap(True)
-        intro.setStyleSheet("font-size: 13px; color: #c9d1d9;")
+        intro.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        intro.setStyleSheet("font-size: 13px; color: #8b949e;")
         c_layout.addWidget(intro)
 
-        # What actually went wrong, when Cortex told us.
+        # Whatever went wrong last time, in the user's own language when we
+        # recognise it and Cortex's own words when we do not.
         self.auth_reason_lbl = QLabel()
         self.auth_reason_lbl.setWordWrap(True)
         self.auth_reason_lbl.setVisible(False)
         self.auth_reason_lbl.setStyleSheet(
             "font-size: 12px; color: #f0883e; background-color: #1f1300;"
-            "border: 1px solid #e3a01a; border-radius: 6px; padding: 8px;")
+            "border: 1px solid #e3a01a; border-radius: 6px; padding: 9px;")
         c_layout.addWidget(self.auth_reason_lbl)
-
-        checks_group = QGroupBox()
-        bind(checks_group, "auth.checks_group", "setTitle")
-        checks_layout = QVBoxLayout(checks_group)
-        for key in ("auth.check_launcher", "auth.check_approved"):
-            line = bind(QLabel(), key)
-            line.setWordWrap(True)
-            line.setStyleSheet("font-size: 13px; color: #e6edf3; padding: 2px 0;")
-            checks_layout.addWidget(line)
-
-        self.auth_retry_btn = bind(QPushButton(), "auth.retry")
-        self.auth_retry_btn.setObjectName("primaryBtn")
-        self.auth_retry_btn.setMinimumHeight(40)
-        self.auth_retry_btn.clicked.connect(self._retry_connection)
-        checks_layout.addWidget(self.auth_retry_btn)
-        c_layout.addWidget(checks_group)
 
         auth_group = QGroupBox()
         bind(auth_group, "auth.group", "setTitle")
         auth_layout = QVBoxLayout(auth_group)
+        auth_layout.setSpacing(6)
+
         auth_layout.addWidget(bind(QLabel(), "auth.client_id"))
         self.client_id_input = QLineEdit()
+        self.client_id_input.setMinimumHeight(34)
+        bind(self.client_id_input, "auth.client_id.hint", "setPlaceholderText")
         auth_layout.addWidget(self.client_id_input)
+
         auth_layout.addWidget(bind(QLabel(), "auth.client_secret"))
         self.client_secret_input = QLineEdit()
+        self.client_secret_input.setMinimumHeight(34)
         self.client_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+        bind(self.client_secret_input, "auth.client_secret.hint", "setPlaceholderText")
         auth_layout.addWidget(self.client_secret_input)
 
+        where = bind(QLabel(), "auth.where")
+        where.setWordWrap(True)
+        where.setOpenExternalLinks(True)
+        where.setStyleSheet("font-size: 11px; color: #6e7681; padding-top: 2px;")
+        auth_layout.addWidget(where)
+
+        self.connect_bci_btn = QPushButton()
+        self.connect_bci_btn.setObjectName("primaryBtn")
+        self.connect_bci_btn.setMinimumHeight(42)
+        bind(self.connect_bci_btn, "auth.connect")
+        self.connect_bci_btn.clicked.connect(self._submit_credentials)
+        auth_layout.addWidget(self.connect_bci_btn)
+
+        # Enter submits: this is a two-field form and nobody should have to
+        # reach for the mouse.
+        for field in (self.client_id_input, self.client_secret_input):
+            field.returnPressed.connect(self._submit_credentials)
+
+        c_layout.addWidget(auth_group)
+
+        # Approving in EMOTIV Launcher is part of this same first-run step, so
+        # the instructions belong on this page rather than a later one.
+        self.auth_approval_lbl = bind(QLabel(), "auth.approval_note")
+        self.auth_approval_lbl.setWordWrap(True)
+        self.auth_approval_lbl.setStyleSheet(
+            "font-size: 12px; color: #8b949e; padding: 2px 4px;")
+        c_layout.addWidget(self.auth_approval_lbl)
+
+        # Kept, but off the first-run path: these are developer switches.
         self.simulate_cb = QCheckBox()
         bind(self.simulate_cb, "auth.simulate")
-        auth_layout.addWidget(self.simulate_cb)
+        self.simulate_cb.setVisible(SHOW_REAL_DRONE)
+        c_layout.addWidget(self.simulate_cb)
 
         self.auto_connect_cb = QCheckBox()
         bind(self.auto_connect_cb, "auth.auto_connect")
         bind(self.auto_connect_cb, "auth.auto_connect.tip", "setToolTip")
-        auth_layout.addWidget(self.auto_connect_cb)
+        self.auto_connect_cb.setVisible(SHOW_REAL_DRONE)
+        c_layout.addWidget(self.auto_connect_cb)
 
-        self.connect_bci_btn = QPushButton(); self.connect_bci_btn.setObjectName("blueBtn")
-        bind(self.connect_bci_btn, "auth.connect")
-        self.connect_bci_btn.clicked.connect(self._start_bci)
-        auth_layout.addWidget(self.connect_bci_btn)
-        c_layout.addWidget(auth_group)
+        # Kept so _retry_connection and the log pane still have their widgets,
+        # but neither belongs on a first-run screen.
+        self.auth_retry_btn = bind(QPushButton(), "auth.retry")
+        self.auth_retry_btn.clicked.connect(self._retry_connection)
+        self.auth_retry_btn.setVisible(False)
+        c_layout.addWidget(self.auth_retry_btn)
 
-        # Where to find the log when reporting a problem. Printed at startup
-        # too, but nobody reads a console they cannot see in a packaged build.
         log_hint = QLabel(t("auth.log_file", path=applog.log_path()))
         log_hint.setWordWrap(True)
         log_hint.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
-        log_hint.setStyleSheet("font-size: 11px; color: #6e7681;")
+        log_hint.setStyleSheet("font-size: 10px; color: #4d5560;")
         c_layout.addWidget(log_hint)
 
-        c_layout.addWidget(bind(QLabel(), "auth.logs"))
         self.bci_log_terminal = QPlainTextEdit()
         self.bci_log_terminal.setReadOnly(True)
         self.bci_log_terminal.setMaximumBlockCount(200)
-        self.bci_log_terminal.setFixedHeight(120)
+        self.bci_log_terminal.setFixedHeight(90)
         c_layout.addWidget(self.bci_log_terminal)
 
-        layout.addWidget(container)
+        layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch(1)
         self.stacked_widget.addWidget(page)
 
     def setup_page_headset(self):
@@ -2542,12 +2653,10 @@ class TelloControllerApp(QMainWindow):
         c_layout.addWidget(self.headset_group)
         self.headset_page_layout = c_layout
 
-        # Back button
-        back_btn = QPushButton()
-        bind(back_btn, "headset.back")
-        back_btn.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(PAGE_AUTH))
-        back_btn.setVisible(SHOW_AUTH_PAGE)
-        c_layout.addWidget(back_btn)
+        # No way back to the credentials screen. It is a one-time setup step,
+        # not a place to revisit: the app returns there on its own if the
+        # credentials ever stop working. An always-present door back to it just
+        # invites someone mid-demo to wander into a form they cannot use.
 
         layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addStretch(1)
@@ -3729,8 +3838,8 @@ class TelloControllerApp(QMainWindow):
         from drone_controller import TelloDroneClient
 
         is_sim = self.simulate_cb.isChecked()
-        cid = 'SIM' if is_sim else self.client_id_input.text()
-        csec = 'SIM' if is_sim else self.client_secret_input.text()
+        cid = 'SIM' if is_sim else self.client_id_input.text().strip()
+        csec = 'SIM' if is_sim else self.client_secret_input.text().strip()
 
         self.connect_bci_btn.setEnabled(False)
 
@@ -4109,7 +4218,17 @@ class TelloControllerApp(QMainWindow):
         # them at this boundary so the badge and the log follow the UI language.
         self.log(t("log.bci_status", status=i18n.backend_status(status)))
 
+        if status.startswith("AUTHORIZED:"):
+            self._on_authorized()
+            return
+
+        if status.startswith("AUTH_FAILED:"):
+            self._show_credentials_page(status[len("AUTH_FAILED:"):].strip())
+            return
+
         if status.startswith("CONNECTION_FAILED:"):
+            if self._awaiting_approval:
+                return
             self._show_connection_problem(status[len("CONNECTION_FAILED:"):])
             return
 
@@ -4130,8 +4249,15 @@ class TelloControllerApp(QMainWindow):
             return
 
         if status.startswith("PENDING_ACCESS:"):
-            # The banner lives on the headset page; approving in EMOTIV Launcher
-            # is the one thing only the user can do, so make sure it is on screen.
+            # Approving in EMOTIV Launcher is part of entering credentials for
+            # the first time, so it belongs on that screen — the user is
+            # standing there having just pressed Connect. Once authorized, a
+            # later pending state is a re-approval and the headset page is the
+            # right place for it.
+            if not self._credentials_saved:
+                self._awaiting_approval = True
+                self._show_credentials_page(waiting=True)
+                return
             if self.stacked_widget.currentIndex() <= PAGE_HEADSET:
                 self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
             self._show_access_pending_ui(status[len("PENDING_ACCESS:"):])
@@ -4254,31 +4380,16 @@ class TelloControllerApp(QMainWindow):
         self._release_headset()
 
     def _show_connection_problem(self, detail: str, rejected: bool = False):
-        """Surface the troubleshooting page when the app cannot reach Cortex.
-
-        This is the only route to the credentials form now: it is not step one
-        any more, because the credentials are almost never what is wrong —
-        EMOTIV Launcher being closed, or this application never having been
-        approved in it, is.
-        """
+        # Folded into the credentials screen: it is the same page now, and the
+        # user is either there already or about to be sent there.
         if rejected:
-            bind(self.auth_reason_lbl, "access.rejected_body")
-            self.auth_reason_lbl.setVisible(True)
-        else:
-            # A failing socket reports twice — on_error with the real reason,
-            # then on_close with nothing. Keep the first specific message
-            # instead of letting the empty one overwrite it, and show no banner
-            # at all rather than repeating the intro paragraph verbatim.
-            if detail:
-                self._conn_fail_detail = detail
-            detail = getattr(self, "_conn_fail_detail", "")
-            if detail:
-                bind(self.auth_reason_lbl, "auth.reason", detail=detail)
-            self.auth_reason_lbl.setVisible(bool(detail))
-
-        self.auth_retry_btn.setEnabled(True)
-        bind(self.auth_retry_btn, "auth.retry")
-        self.stacked_widget.setCurrentIndex(PAGE_AUTH)
+            self._show_credentials_page(t("access.rejected_body"))
+            return
+        if detail:
+            self._conn_fail_detail = detail
+        self._show_credentials_page(
+            getattr(self, "_conn_fail_detail", "") or t("auth.unreachable"))
+        return
 
     def _retry_connection(self):
         """Start over from scratch after the user has fixed whatever was wrong."""
@@ -4292,6 +4403,9 @@ class TelloControllerApp(QMainWindow):
             # stacking a second client on top of it. close() blocks for about a
             # second, so it does not belong on the UI thread.
             stale, self.drone_client = self.drone_client, None
+            # Silence it before closing: its socket outlives this call and
+            # would otherwise report the old failure into the new attempt.
+            self._quietly(stale.detach_callbacks)
             threading.Thread(
                 target=lambda: self._quietly(stale.close), daemon=True).start()
 
@@ -4738,7 +4852,9 @@ class TelloControllerApp(QMainWindow):
         if self.tello:
             threading.Thread(target=self._safe_land_and_end, daemon=True).start()
 
-        self.stacked_widget.setCurrentIndex(PAGE_AUTH)
+        # The headset list, not the credentials screen: disconnecting a drone
+        # says nothing about whether the Cortex credentials are still good.
+        self.stacked_widget.setCurrentIndex(PAGE_HEADSET)
         self.log(t("log.disconnected"))
 
     def _safe_land_and_end(self):
@@ -4827,16 +4943,23 @@ class TelloControllerApp(QMainWindow):
 
     def load_settings(self):
         c = self.config
-        self.client_id_input.setText(c.get("client_id", ""))
-        self.client_secret_input.setText(c.get("client_secret", ""))
+        cid = (c.get("client_id") or "").strip()
+        secret = (c.get("client_secret") or "").strip()
+        self.client_id_input.setText(
+            "" if cid in self.PLACEHOLDER_CREDENTIALS else cid)
+        self.client_secret_input.setText(
+            "" if secret in self.PLACEHOLDER_CREDENTIALS else secret)
         self.simulate_cb.setChecked(c.get("simulate", False))
         self.auto_connect_cb.setChecked(c.get("auto_connect", True))
         # Profile combo is populated dynamically; just remember the saved name
         # so _populate_profiles can re-select it once the list arrives.
 
     def save_settings(self):
-        self.config["client_id"] = self.client_id_input.text()
-        self.config["client_secret"] = self.client_secret_input.text()
+        # Deliberately not the credentials. _start_bci calls this before it has
+        # any idea whether they work, so writing them here persisted a bad pair
+        # — and the next launch would then skip the credentials screen and fail
+        # with nowhere to correct it. _on_authorized saves them once Cortex and
+        # EMOTIV Launcher have both accepted.
         self.config["language"] = i18n.get_lang()
         # profile_name is set automatically by _populate_profiles when profiles arrive
         self.config["simulate"] = self.simulate_cb.isChecked()
