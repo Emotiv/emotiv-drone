@@ -43,6 +43,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
+; The wizard's own icon. The installed app takes its icon from the exe, which
+; PyInstaller stamps from the same file.
+SetupIconFile=app_icon.ico
 
 [Languages]
 ; English only. Inno Setup ships about two dozen European translations in

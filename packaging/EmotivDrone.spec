@@ -14,6 +14,11 @@ APP_NAME = "EMOTIV Drone BCI"
 # one level up. Deriving it this way keeps the build independent of the cwd.
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 
+# Built from assets/logo_white.png by packaging/make_icon.py. Windows needs a
+# .ico; the source logo is white on transparent, which disappears against a
+# light taskbar, so the icon sits on the app's own dark rounded square.
+ICON = os.path.join(SPECPATH, "app_icon.ico")
+
 datas = [
     (os.path.join(ROOT, "certificates", "rootCA.pem"), "certificates"),
     (os.path.join(ROOT, "bg.png"), "."),
@@ -52,6 +57,7 @@ exe = EXE(
     a.scripts,
     exclude_binaries=True,
     name=APP_NAME,
+    icon=ICON,
     debug=False,
     strip=False,
     upx=False,
