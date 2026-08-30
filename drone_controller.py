@@ -119,6 +119,9 @@ class TelloDroneClient:
     def reset_center(self):
         """Forces the quaternion processor to recalibrate on the next motion frame."""
         if hasattr(self, 'program') and self.program.quaternion_processor:
+            # Clear any partial batch as well as the flag, or Recenter averages
+            # the new frames together with stale ones from the last attempt.
+            self.program.quaternion_processor._calibration_samples.clear()
             self.program.quaternion_processor._is_calibrated = False
             msg = "Headset center reset requested"
             print(msg, flush=True)

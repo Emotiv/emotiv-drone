@@ -44,8 +44,20 @@ class ProgramSimulator:
             return 0, 0
 
         if not self.quaternion_processor.is_calibrated:
-            # Auto-calibrate on first sample, as C# does
-            self.quaternion_processor.calibrate(w, x, y, z)
+            # Average about a second of frames instead of trusting one.
+            #
+            # This used to calibrate from a single sample, so whatever position
+            # the head happened to be in on that exact frame became "straight
+            # ahead" for the rest of the session — and that frame arrives while
+            # the person is still settling the headset and looking around. Any
+            # error in it becomes a permanent offset, and because steering is a
+            # rate, a permanent offset means the drone turns slowly forever
+            # while the wearer holds still.
+            #
+            # accumulate_calibration_sample() averages and normalises the batch,
+            # then marks the processor calibrated. It existed already and was
+            # simply never reached.
+            self.quaternion_processor.accumulate_calibration_sample(w, x, y, z)
             return 0, 0
 
         movement = self.quaternion_processor.calculate_cursor_movement(w, x, y, z)

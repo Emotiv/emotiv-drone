@@ -29,7 +29,14 @@ DEFAULT_CONFIG = {
 
     # Motion Processor Settings
     "sensitivity": 0.50,
-    "deadzone": 0.02,
+    # How far the head must turn from centre before the drone responds.
+    #
+    # Steering is a rate, not a position: any residual offset keeps turning the
+    # drone for as long as it lasts. This was 0.02, but movement does not begin
+    # until about 0.05 (below that the scaled value truncates to zero), so the
+    # dead band sat underneath the range it was supposed to guard and did
+    # nothing at all. 0.07 is roughly four degrees of head rotation.
+    "deadzone": 0.07,
     "smoothing_window": 4,
 
     # Head-tilt response per direction. Without these the app fell back to a
@@ -180,6 +187,14 @@ class ConfigManager:
         # Insight ended up steering backwards after someone tuned an MN8. Every
         # model that genuinely needs inverting now says so in DEVICE_DEFAULTS,
         # so the base belongs at False.
+        # 0.02 is the old default and provably inert - it sits below the point
+        # where any movement is produced. Anything else is someone's choice.
+        if config.get("deadzone") == 0.02:
+            config["deadzone"] = DEFAULT_CONFIG["deadzone"]
+            changed = True
+            print("[config] raised the inert deadzone to a working value",
+                  flush=True)
+
         if config.get("invert_yaw") is True:
             config["invert_yaw"] = False
             changed = True

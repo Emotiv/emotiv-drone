@@ -111,6 +111,8 @@ class QuaternionProcessor:
     def reset(self) -> None:
         self._calibration_quaternion = Quaternion.identity()
         self._is_calibrated = False
+        # Recenter re-runs the averaging, so any half-collected batch from a
+        # previous attempt must not carry into it.
         self._movement_buffer.clear()
         self._calibration_samples.clear()
 
