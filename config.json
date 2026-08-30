@@ -1,97 +1,12 @@
 {
-    "language": "zh",
-    "auto_connect": true,
-    "device_id": "INSIGHT2-A3D20832",
-    "profile_name": "",
-    "simulate": false,
-    "fix_indices": false,
-    "sensitivity": 0.5,
-    "deadzone": 0.02,
-    "smoothing_window": 4,
-    "sens_left": 40.0,
-    "sens_right": 40.0,
-    "sens_fwd": 25.0,
-    "sens_back": 25.0,
     "invert_yaw": false,
-    "max_speed": 69,
-    "altitude_hold": true,
-    "yaw_sensitivity": 0.5,
-    "throttle_sensitivity": 0.5,
-    "mental_mappings": [
-        {
-            "command": "push",
-            "action": "MoveForward",
-            "threshold": 0.5,
-            "auto_release": 0
-        },
-        {
-            "command": "pull",
-            "action": "None",
-            "threshold": 0.5,
-            "auto_release": 0
-        },
-        {
-            "command": "drop",
-            "action": "None",
-            "threshold": 0.5,
-            "auto_release": 0
-        },
-        {
-            "command": "lift",
-            "action": "None",
-            "threshold": 0.5,
-            "auto_release": 0
-        }
-    ],
     "device_profiles": {
         "MN8": {
             "invert_yaw": true,
-            "sens_left": 20.0,
-            "sens_right": 20.0,
+            "sens_left": 30.0,
+            "sens_right": 30.0,
             "sens_fwd": 25.0,
-            "sens_back": 25.0,
-            "sensitivity": 0.5,
-            "deadzone": 0.02,
-            "smoothing_window": 4,
-            "max_speed": 69,
-            "yaw_sensitivity": 0.5,
-            "throttle_sensitivity": 0.5,
-            "mental_mappings": [
-                {
-                    "command": "push",
-                    "action": "MoveForward",
-                    "threshold": 0.5,
-                    "auto_release": 0
-                },
-                {
-                    "command": "pull",
-                    "action": "None",
-                    "threshold": 0.5,
-                    "auto_release": 0
-                },
-                {
-                    "command": "drop",
-                    "action": "None",
-                    "threshold": 0.5,
-                    "auto_release": 0
-                },
-                {
-                    "command": "lift",
-                    "action": "None",
-                    "threshold": 0.5,
-                    "auto_release": 0
-                }
-            ]
-        },
-        "INSIGHT2": {
-            "sens_left": 40.0,
-            "sens_right": 40.0
-        },
-        "INSIGHT": {
-            "sens_left": 40.0,
-            "sens_right": 40.0
-        },
-        "EPOCX": {},
-        "EPOC": {}
+            "sens_back": 25.0
+        }
     }
 }

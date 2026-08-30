@@ -174,9 +174,20 @@ class ConfigManager:
                 profile["mental_mappings"] = [dict(m) for m in fresh]
                 changed = True
 
-        if changed:
-            print("[config] migrated the old take-off mapping to move-forward",
+        # A top-level invert_yaw of True is the old global default, from before
+        # inversion became a per-model property. It is a blunt instrument: it
+        # flips every headset that has no profile of its own, which is how an
+        # Insight ended up steering backwards after someone tuned an MN8. Every
+        # model that genuinely needs inverting now says so in DEVICE_DEFAULTS,
+        # so the base belongs at False.
+        if config.get("invert_yaw") is True:
+            config["invert_yaw"] = False
+            changed = True
+            print("[config] cleared the global yaw inversion; it is per-model now",
                   flush=True)
+
+        if changed:
+            print("[config] migrated saved settings forward", flush=True)
         return changed
 
     @staticmethod
