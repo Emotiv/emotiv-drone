@@ -10,6 +10,7 @@ Mental commands are mapped to discrete drone actions (TakeOff, Land, etc.).
 import os
 import sys
 import time
+import math
 import argparse
 import threading
 
@@ -55,6 +56,16 @@ class TelloDroneClient:
         self.latest_raw_mot = ""
         self.latest_raw_com = ""
         self.q_indices = None
+
+        # Bookkeeping for the once-a-second steering report; see _log_steering.
+        self._steer_last_log = 0.0
+        self._steer_peak = 0.0
+        self._steer_moved = False
+        self._steer_quiet = False
+        self._steer_was_calibrated = False
+        # Same, for mental commands that land under their threshold.
+        self._mental_last_log = 0.0
+        self._mental_peak = 0.0
         
         config = config or {}
         mental_mappings = config.get("mental_mappings")
@@ -290,11 +301,87 @@ class TelloDroneClient:
 
         motion = [timestamp, 0, 0, w, x, y, z]
         dx, dy = self.program.receive_motion(motion)
+        self._log_steering(dx)
 
         if dx != 0 or dy != 0:
             self.drone.move_by(dx, dy)
         else:
             self.drone.stop_movement()
+
+    # Motion frames arrive at 32-64 Hz. One line per frame would bury the log
+    # and the on-screen terminal, so the report is a once-a-second summary that
+    # carries the peak of the interval rather than whichever frame happened to
+    # land on the tick.
+    STEER_LOG_INTERVAL = 1.0
+
+    def _log_steering(self, dx: int):
+        """Report how a turn of the head became (or failed to become) a turn.
+
+        Steering runs measured yaw through a deadzone, a sensitivity multiplier
+        and finally int(), and when it does not work the interesting question
+        is which of those swallowed it. Reading them off a live headset is the
+        only way to tell, hence the log rather than more guessing.
+        """
+        qp = self.program.quaternion_processor
+
+        # Calibration first: until it finishes every frame legitimately yields
+        # zero, and mistaking that for broken steering wastes the whole hunt.
+        calibrated = qp.is_calibrated
+        if calibrated != self._steer_was_calibrated:
+            self._steer_was_calibrated = calibrated
+            print("[steer] calibrated, centre captured" if calibrated
+                  else "[steer] calibrating, hold still", flush=True)
+            print(f"[steer] config deadzone={qp.movement_deadzone:.3f} "
+                  f"({math.degrees(qp.movement_deadzone):.1f}deg) "
+                  f"sens_left={qp.sens_left:.0f} sens_right={qp.sens_right:.0f} "
+                  f"base={qp.current_sensitivity:.2f} "
+                  f"invert_yaw={qp.invert_yaw} "
+                  f"smoothing={qp.SmoothingWindow}", flush=True)
+            self._steer_peak = 0.0
+            self._steer_last_log = time.time()
+            return
+        if not calibrated:
+            return
+
+        debug = qp.last_yaw_debug
+        if not debug:
+            return
+
+        measured = debug["measured"]
+        if abs(measured) > abs(self._steer_peak):
+            self._steer_peak = measured
+        if dx != 0:
+            self._steer_moved = True
+
+        now = time.time()
+        if now - self._steer_last_log < self.STEER_LOG_INTERVAL:
+            return
+        self._steer_last_log = now
+
+        # A dead-still head every second forever is noise. Report only once,
+        # then stay quiet until something actually happens.
+        interesting = self._steer_moved or abs(self._steer_peak) >= 0.01
+        if not interesting:
+            if self._steer_quiet:
+                self._steer_peak = 0.0
+                self._steer_moved = False
+                return
+            self._steer_quiet = True
+        else:
+            self._steer_quiet = False
+
+        side = "right" if self._steer_peak > 0 else "left"
+        print(
+            f"[steer] head {math.degrees(self._steer_peak):+.1f}deg {side} "
+            f"(raw {self._steer_peak:+.3f}) -> after deadzone "
+            f"{debug['gated']:+.3f} x sens {debug['sens']:.0f} x "
+            f"{debug['base']:.2f} = {debug['scaled']:+.2f} "
+            f"smoothed {debug['smoothed']:+.2f} -> dx={debug['dx']} "
+            f"rc_yaw={debug['dx'] * 2.5:+.0f} lost_to={debug['gate']}",
+            flush=True)
+
+        self._steer_peak = 0.0
+        self._steer_moved = False
 
     def on_new_com_data(self, *args, **kwargs):
         data = kwargs.get('data', {})
@@ -307,9 +394,47 @@ class TelloDroneClient:
 
         mental = [timestamp, action, power]
         act, auto_release_time, should_execute = self.program.receive_mental(mental)
+        self._log_mental(action, power, act, should_execute)
         if should_execute:
             print(f"Executing mental action: {act}", flush=True)
             self.drone.execute_action(act, auto_release_time)
+
+    def _log_mental(self, command: str, power: float, action: str, fired: bool):
+        """Report the mental command that did not quite make it.
+
+        A command that fires already announces itself. The interesting case is
+        the one that does not: Cortex is classifying the thought but the power
+        sits under the mapping's threshold, which from the player's seat is
+        indistinguishable from the headset ignoring them. Without the number
+        there is no way to tell a weakly trained profile from a broken one.
+
+        Throttled and peak-carrying for the same reason as _log_steering: the
+        com stream is far too fast to print per event.
+        """
+        if fired:
+            self._mental_peak = 0.0
+            return
+
+        threshold = self.program.mental_processor.mappings
+        threshold = next((m.get("threshold", 0.5) for m in threshold
+                          if m.get("command", "").lower() == command.lower()), None)
+        # 'neutral' has no mapping and is not a command anyone is trying to
+        # make; reporting it every second would drown the ones that matter.
+        if threshold is None or command.lower() == "neutral":
+            return
+
+        if power > self._mental_peak:
+            self._mental_peak = power
+
+        now = time.time()
+        if now - self._mental_last_log < self.STEER_LOG_INTERVAL:
+            return
+        self._mental_last_log = now
+
+        if self._mental_peak > 0.0:
+            print(f"[mental] '{command}' peaked at {self._mental_peak:.2f}, "
+                  f"needs {threshold:.2f} -> not fired", flush=True)
+        self._mental_peak = 0.0
 
     # Cortex codes that mean "these credentials will never work", as opposed to
     # something transient. -32001/-32002 cover an unknown or wrong client id or

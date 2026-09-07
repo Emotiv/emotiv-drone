@@ -62,6 +62,12 @@ class QuaternionProcessor:
 
         self._movement_buffer: Deque[Tuple[float, float]] = deque(maxlen=self.SmoothingWindow)
 
+        # Every intermediate value from the most recent left/right calculation,
+        # so a machine where steering does not work can be diagnosed from the
+        # log instead of by guessing. Written on every frame, read and printed
+        # at about 1 Hz by the caller. See last_yaw_debug.
+        self.last_yaw_debug: Optional[dict] = None
+
         # For calibration aggregation
         self._calibration_samples: List[Quaternion] = []
         self._calibration_sample_count: int = 60
@@ -126,12 +132,16 @@ class QuaternionProcessor:
         relative_pitch = 2 * relative_q.x
         relative_yaw = 2 * relative_q.z
 
+        # Kept for the diagnostics below: once the deadzone has zeroed it there
+        # is no way to tell "head was still" from "head moved but not enough".
+        measured_yaw = relative_yaw
+
         # Deadzone
         if abs(relative_yaw) < self.movement_deadzone:
             relative_yaw = 0.0
         if abs(relative_pitch) < self.movement_deadzone:
             relative_pitch = 0.0
-            
+
         if self.invert_yaw:
             relative_yaw = -relative_yaw
         if self.invert_pitch:
@@ -153,4 +163,33 @@ class QuaternionProcessor:
         avg_y = float(np.mean([p[1] for p in self._movement_buffer]))
 
         # Truncate toward zero same as C# (int())
-        return int(avg_x), int(avg_y)
+        dx, dy = int(avg_x), int(avg_y)
+
+        # Where a turn of the head is lost, if it is lost. Two separate gates
+        # can swallow it and they need different fixes: the deadzone is a
+        # config value, while truncation is the int() above discarding
+        # everything under one whole unit, which no amount of deadzone
+        # tuning helps with.
+        if dx != 0:
+            gate = "none"
+        elif measured_yaw == 0.0:
+            gate = "still"
+        elif relative_yaw == 0.0:
+            gate = "deadzone"
+        else:
+            gate = "truncated"
+
+        self.last_yaw_debug = {
+            "measured": measured_yaw,   # 2*qz, before deadzone; ~radians
+            "gated": relative_yaw,      # after deadzone and inversion
+            "deadzone": self.movement_deadzone,
+            "sens": h_sens,
+            "base": self.current_sensitivity,
+            "scaled": raw_x,            # after sensitivity, before smoothing
+            "smoothed": avg_x,
+            "dx": dx,
+            "invert_yaw": self.invert_yaw,
+            "gate": gate,
+        }
+
+        return dx, dy
