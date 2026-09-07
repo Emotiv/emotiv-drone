@@ -60,6 +60,7 @@ class TelloDroneClient:
         # Bookkeeping for the once-a-second steering report; see _log_steering.
         self._steer_last_log = 0.0
         self._steer_peak = 0.0
+        self._steer_peak_debug = None
         self._steer_moved = False
         self._steer_quiet = False
         self._steer_was_calibrated = False
@@ -338,6 +339,7 @@ class TelloDroneClient:
                   f"invert_yaw={qp.invert_yaw} "
                   f"smoothing={qp.SmoothingWindow}", flush=True)
             self._steer_peak = 0.0
+            self._steer_peak_debug = None
             self._steer_last_log = time.time()
             return
         if not calibrated:
@@ -349,7 +351,14 @@ class TelloDroneClient:
 
         measured = debug["measured"]
         if abs(measured) > abs(self._steer_peak):
+            # Keep the whole frame, not just its yaw. Reporting the interval's
+            # peak alongside the *latest* frame's arithmetic mixed two
+            # different moments, and during a fast head turn the two disagreed
+            # on both sign and magnitude -- lines claiming a 14deg turn was
+            # eaten by a 4deg deadzone were reading the peak from one frame and
+            # the deadzone result from another.
             self._steer_peak = measured
+            self._steer_peak_debug = dict(debug)
         if dx != 0:
             self._steer_moved = True
 
@@ -370,17 +379,19 @@ class TelloDroneClient:
         else:
             self._steer_quiet = False
 
-        side = "right" if self._steer_peak > 0 else "left"
+        peak = self._steer_peak_debug or debug
+        side = "right" if peak["measured"] > 0 else "left"
         print(
-            f"[steer] head {math.degrees(self._steer_peak):+.1f}deg {side} "
-            f"(raw {self._steer_peak:+.3f}) -> after deadzone "
-            f"{debug['gated']:+.3f} x sens {debug['sens']:.0f} x "
-            f"{debug['base']:.2f} = {debug['scaled']:+.2f} "
-            f"smoothed {debug['smoothed']:+.2f} -> dx={debug['dx']} "
-            f"rc_yaw={debug['dx'] * 2.5:+.0f} lost_to={debug['gate']}",
+            f"[steer] head {math.degrees(peak['measured']):+.1f}deg {side} "
+            f"(raw {peak['measured']:+.3f}) -> after deadzone "
+            f"{peak['gated']:+.3f} x sens {peak['sens']:.0f} x "
+            f"{peak['base']:.2f} = {peak['scaled']:+.2f} "
+            f"smoothed {peak['smoothed']:+.2f} -> dx={peak['dx']} "
+            f"rc_yaw={peak['dx'] * 2.5:+.0f} lost_to={peak['gate']}",
             flush=True)
 
         self._steer_peak = 0.0
+        self._steer_peak_debug = None
         self._steer_moved = False
 
     def on_new_com_data(self, *args, **kwargs):
