@@ -333,6 +333,7 @@ class TelloDroneClient:
             print("[steer] calibrated, centre captured" if calibrated
                   else "[steer] calibrating, hold still", flush=True)
             print(f"[steer] config gain={qp.head_gain:.1f} "
+                  f"expo={qp.head_expo:.2f} "
                   f"deadzone={qp.head_deadzone_deg:.1f}deg "
                   f"limit={qp.head_limit_deg:.0f}deg "
                   f"invert_yaw={qp.invert_yaw} "

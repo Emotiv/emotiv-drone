@@ -46,6 +46,10 @@ DEFAULT_CONFIG = {
     # so it suppresses noise near centre without a step at its edge.
     "head_gain": 3.0,
     "head_deadzone_deg": 2.0,
+    # Softens the response near centre without shrinking the turning range:
+    # 0 is a straight line, 1 fully cubic. Raise it if steering feels twitchy,
+    # lower head_gain instead if you want less turn everywhere.
+    "head_expo": 0.6,
 
     # Head-tilt response per direction. Without these the app fell back to a
     # literal in _apply_config_to_client, so a fresh install flew differently
@@ -260,7 +264,7 @@ class ConfigManager:
         overridable_keys = [
             "invert_yaw", "sens_left", "sens_right", "sens_fwd", "sens_back",
             "sensitivity", "deadzone", "smoothing_window",
-            "head_gain", "head_deadzone_deg",
+            "head_gain", "head_deadzone_deg", "head_expo",
             "max_speed", "yaw_sensitivity", "throttle_sensitivity",
             "mental_mappings"
         ]

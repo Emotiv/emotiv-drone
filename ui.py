@@ -5040,6 +5040,7 @@ class TelloControllerApp(QMainWindow):
             qp.movement_deadzone = self.config.get("deadzone", 0.02)
             qp.head_gain = float(self.config.get("head_gain", 3.0))
             qp.head_deadzone_deg = float(self.config.get("head_deadzone_deg", 2.0))
+            qp.head_expo = float(self.config.get("head_expo", 0.6))
             sw = self.config.get("smoothing_window", 4)
             qp.SmoothingWindow = sw
             qp._movement_buffer = __import__('collections').deque(maxlen=sw)
@@ -5554,6 +5555,7 @@ class SettingsDialog(QDialog):
             qp.movement_deadzone = self.config.get("deadzone", 0.02)
             qp.head_gain = float(self.config.get("head_gain", 3.0))
             qp.head_deadzone_deg = float(self.config.get("head_deadzone_deg", 2.0))
+            qp.head_expo = float(self.config.get("head_expo", 0.6))
             sw = self.config.get("smoothing_window", 6)
             qp.SmoothingWindow = sw
             # Don't reset deque here, too disruptive during live tweaking

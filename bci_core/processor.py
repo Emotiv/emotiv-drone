@@ -60,6 +60,13 @@ class QuaternionProcessor:
         self.head_gain: float = 3.0
         self.head_deadzone_deg: float = 2.0
         self.head_limit_deg: float = 120.0
+        # How much of the response is pushed away from centre. 0 is a straight
+        # line, where a small head movement steers as hard per degree as a
+        # large one and the drone feels twitchy. 1 is fully cubic. In between,
+        # small movements are gentle and big ones still reach the full range,
+        # which is what "less sensitive" almost always means -- calmer around
+        # centre, not a smaller turning circle.
+        self.head_expo: float = 0.6
         # Where the drone should be pointing, degrees off the calibrated
         # centre. Read by the simulator every frame.
         self.head_heading_deg: float = 0.0
@@ -176,9 +183,15 @@ class QuaternionProcessor:
             centred = math.copysign(
                 abs(smoothed) - self.head_deadzone_deg, smoothed)
 
-        heading = centred * self.head_gain
-        self.head_heading_deg = max(-self.head_limit_deg,
-                                    min(self.head_limit_deg, heading))
+        # Shape the response before clamping. Working in normalised units
+        # keeps expo independent of gain: full head deflection still reaches
+        # full heading whatever the curve, only the path there changes.
+        limit = self.head_limit_deg
+        u = max(-1.0, min(1.0, (centred * self.head_gain) / limit))
+        expo = max(0.0, min(1.0, self.head_expo))
+        shaped = expo * (u ** 3) + (1.0 - expo) * u
+
+        self.head_heading_deg = shaped * limit
 
     def calculate_cursor_movement(self, current_w: float, current_x: float, current_y: float, current_z: float) -> Tuple[int, int]:
         if not self._is_calibrated:
