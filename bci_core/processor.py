@@ -51,6 +51,20 @@ class QuaternionProcessor:
         self.sens_back: float = 50.0 # head up (backward)
         
         self.movement_deadzone: float = 0.02
+        # Steering is absolute: the head's angle sets the drone's heading
+        # rather than how fast it spins. head_gain multiplies a comfortable
+        # head turn up into a useful one -- 3.0 turns a 30 degree look into a
+        # 90 degree heading. head_deadzone_deg is subtracted rather than
+        # zeroed, so there is no jump at its edge; it only suppresses sensor
+        # noise and a small calibration error around centre.
+        self.head_gain: float = 3.0
+        self.head_deadzone_deg: float = 2.0
+        self.head_limit_deg: float = 120.0
+        # Where the drone should be pointing, degrees off the calibrated
+        # centre. Read by the simulator every frame.
+        self.head_heading_deg: float = 0.0
+        # The head's own angle, before gain. Logged, not steered by.
+        self.head_yaw_deg: float = 0.0
         self.invert_yaw: bool = False
         # Forward/back, separately from left/right: a headset can disagree with
         # the base orientation on one axis without disagreeing on both.
@@ -61,6 +75,10 @@ class QuaternionProcessor:
         self._is_calibrated: bool = False
 
         self._movement_buffer: Deque[Tuple[float, float]] = deque(maxlen=self.SmoothingWindow)
+        # Smoothing for the absolute heading, kept separate from the buffer
+        # above: that one holds rate values scaled by sensitivity, and an angle
+        # averaged after scaling is not the same as the average angle.
+        self._angle_buffer: Deque[float] = deque(maxlen=self.SmoothingWindow)
 
         # Every intermediate value from the most recent left/right calculation,
         # so a machine where steering does not work can be diagnosed from the
@@ -81,6 +99,9 @@ class QuaternionProcessor:
         self._calibration_quaternion = q
         self._is_calibrated = True
         self._movement_buffer.clear()
+        self._angle_buffer.clear()
+        self.head_heading_deg = 0.0
+        self.head_yaw_deg = 0.0
 
     def accumulate_calibration_sample(self, w: float, x: float, y: float, z: float) -> None:
         self._calibration_samples.append(Quaternion(w, x, y, z))
@@ -120,7 +141,44 @@ class QuaternionProcessor:
         # Recenter re-runs the averaging, so any half-collected batch from a
         # previous attempt must not carry into it.
         self._movement_buffer.clear()
+        self._angle_buffer.clear()
+        self.head_heading_deg = 0.0
+        self.head_yaw_deg = 0.0
         self._calibration_samples.clear()
+
+    def _update_heading(self, relative_q: "Quaternion") -> None:
+        """Turn the head's angle into the heading the drone should hold.
+
+        This replaces rate steering, where the head set how fast the drone
+        span and holding it a few degrees off centre span it forever. Position
+        steering has no memory: whatever angle the head is at right now is the
+        angle the drone points at, so a small calibration error is a small
+        fixed aim error instead of an endless rotation, and letting the head
+        return to centre returns the drone to centre.
+
+        asin rather than the small-angle 2*z used above, so a 40 degree look
+        reads as 40 degrees instead of being quietly compressed.
+        """
+        angle = math.degrees(2.0 * math.asin(max(-1.0, min(1.0, relative_q.z))))
+        if self.invert_yaw:
+            angle = -angle
+
+        self._angle_buffer.append(angle)
+        smoothed = sum(self._angle_buffer) / len(self._angle_buffer)
+        self.head_yaw_deg = smoothed
+
+        # Subtracting the deadzone instead of zeroing inside it keeps the
+        # response continuous: at the edge the output is 0 either way, so
+        # there is no step to fall off.
+        if abs(smoothed) <= self.head_deadzone_deg:
+            centred = 0.0
+        else:
+            centred = math.copysign(
+                abs(smoothed) - self.head_deadzone_deg, smoothed)
+
+        heading = centred * self.head_gain
+        self.head_heading_deg = max(-self.head_limit_deg,
+                                    min(self.head_limit_deg, heading))
 
     def calculate_cursor_movement(self, current_w: float, current_x: float, current_y: float, current_z: float) -> Tuple[int, int]:
         if not self._is_calibrated:
@@ -131,6 +189,8 @@ class QuaternionProcessor:
 
         relative_pitch = 2 * relative_q.x
         relative_yaw = 2 * relative_q.z
+
+        self._update_heading(relative_q)
 
         # Kept for the diagnostics below: once the deadzone has zeroed it there
         # is no way to tell "head was still" from "head moved but not enough".

@@ -580,11 +580,18 @@ class DroneSimulatorWidget(QWidget):
                 "hue": random.choice(["#f1c40f", "#ffd966", "#ffffff", "#58a6ff"]),
             })
 
-    def update_rc(self, lr, fb, ud, yaw):
+    def update_rc(self, lr, fb, ud, yaw, heading=None):
         speed_factor = 0.8
         rot_factor = 0.15
 
-        self.yaw += yaw * rot_factor
+        if heading is None:
+            # No head tracking behind this call -- the training screens drive
+            # the drone forward for show and never steer it.
+            self.yaw += yaw * rot_factor
+        else:
+            # Absolute: the head is pointing somewhere and so is the drone.
+            # Nothing accumulates, so a steady head is a steady heading.
+            self.yaw = heading
 
         # Dynamic pitch and roll based on joystick inputs to make it look alive
         self.pitch = -fb * 0.3
@@ -4833,13 +4840,29 @@ class TelloControllerApp(QMainWindow):
         self.video_thread.status_update.connect(self.log)
         self.video_thread.start()
 
+    def _head_heading(self):
+        """Where the head is pointing, in degrees, or None if it cannot say.
+
+        Returns None rather than 0 before calibration finishes: 0 is a real
+        heading meaning "dead ahead", and snapping there while the centre is
+        still being measured would twitch the drone straight.
+        """
+        client = self.drone_client
+        if not client or not client.program:
+            return None
+        qp = client.program.quaternion_processor
+        if not qp.is_calibrated:
+            return None
+        return qp.head_heading_deg
+
     def update_telemetry(self):
         if self.drone_client and self.stacked_widget.currentIndex() in (PAGE_TEST, PAGE_DASHBOARD):
             if self.drone_client and self.drone_client.drone:
                 lr, fb, ud, yaw = self.drone_client.drone.get_rc_values()
                 self.rc_lbl.setText(f"RC: lr={lr:+4d}  fb={fb:+4d}  ud={ud:+4d}  yaw={yaw:+4d}")
                 if self.stacked_widget.currentIndex() == PAGE_TEST:
-                    self.drone_sim.update_rc(lr, fb, ud, yaw)
+                    self.drone_sim.update_rc(lr, fb, ud, yaw,
+                                             heading=self._head_heading())
                 
                 # Update MC Dashboard Indicator
                 action = getattr(self.drone_client.drone, 'last_executed_action', None)
@@ -5015,6 +5038,8 @@ class TelloControllerApp(QMainWindow):
             qp.sens_fwd = self.config.get("sens_fwd", 50.0)
             qp.sens_back = self.config.get("sens_back", 50.0)
             qp.movement_deadzone = self.config.get("deadzone", 0.02)
+            qp.head_gain = float(self.config.get("head_gain", 3.0))
+            qp.head_deadzone_deg = float(self.config.get("head_deadzone_deg", 2.0))
             sw = self.config.get("smoothing_window", 4)
             qp.SmoothingWindow = sw
             qp._movement_buffer = __import__('collections').deque(maxlen=sw)
@@ -5527,6 +5552,8 @@ class SettingsDialog(QDialog):
             qp.sens_fwd = self.config.get("sens_fwd", 50.0)
             qp.sens_back = self.config.get("sens_back", 50.0)
             qp.movement_deadzone = self.config.get("deadzone", 0.02)
+            qp.head_gain = float(self.config.get("head_gain", 3.0))
+            qp.head_deadzone_deg = float(self.config.get("head_deadzone_deg", 2.0))
             sw = self.config.get("smoothing_window", 6)
             qp.SmoothingWindow = sw
             # Don't reset deque here, too disruptive during live tweaking

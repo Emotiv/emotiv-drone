@@ -89,30 +89,21 @@ class DroneAdapter:
     def move_by(self, dx: int, dy: int):
         """Called by the bci_core loop with cursor-like deltas.
 
-        dx > 0 → head turned right → drone rotates right
+        Head motion no longer produces any RC velocity. Steering is absolute:
+        the head's angle is the drone's heading, read straight off
+        QuaternionProcessor.head_heading_deg by the simulator. Turning that
+        angle into a yaw *rate* here was the whole problem — a rate has memory,
+        so a head parked a few degrees off centre span the drone forever, and
+        int() quantised what was left into six coarse steps.
 
-        Head tilt is deliberately ignored. It used to drive forward/backward,
-        but forward was already suppressed wherever a mental command was mapped
-        to MoveForward — which is the default — so in practice tilting could
-        only ever reverse the drone. That was undocumented: the on-screen
-        instructions say turn your head to steer and think your command to fly
-        forward, and say nothing about tilting. Reversing on an unconscious
-        head movement just took people backwards through rings they had lined
-        up. `dy` is still accepted because the bci_core loop supplies it.
+        Tilt never did anything either: forward comes from the trained mental
+        command. So all four channels are held at zero and both arguments are
+        accepted only because the bci_core loop supplies them.
         """
         with self.lock:
-            self._lr = 0                             # left-right (disabled)
-            yaw = self._clamp(int(dx * 2.5))         # rotate left-right
-
-            # A mental command mapped to a rotation owns that direction, so
-            # head movement must not fight it.
-            if "MoveRight" in self.mental_move_actions and yaw > 0: yaw = 0
-            if "MoveLeft" in self.mental_move_actions and yaw < 0: yaw = 0
-
-            self._yaw = yaw
-            # Forward comes from the trained command, via get_rc_values.
+            self._lr = 0
             self._fb = 0
-            # ud is left at 0 unless explicitly set
+            self._yaw = 0
             if self.altitude_hold:
                 self._ud = 0
 

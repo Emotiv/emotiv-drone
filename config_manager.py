@@ -39,6 +39,14 @@ DEFAULT_CONFIG = {
     "deadzone": 0.07,
     "smoothing_window": 4,
 
+    # Absolute steering. The head's angle is the drone's heading, so these
+    # replace the rate tuning above for left/right: head_gain multiplies a
+    # comfortable look into a useful turn (3.0 makes 30 degrees of head into
+    # 90 of heading), and head_deadzone_deg is subtracted rather than zeroed,
+    # so it suppresses noise near centre without a step at its edge.
+    "head_gain": 3.0,
+    "head_deadzone_deg": 2.0,
+
     # Head-tilt response per direction. Without these the app fell back to a
     # literal in _apply_config_to_client, so a fresh install flew differently
     # from a tuned checkout for no visible reason.
@@ -251,7 +259,8 @@ class ConfigManager:
         # For simplicity, we just save motion/control keys
         overridable_keys = [
             "invert_yaw", "sens_left", "sens_right", "sens_fwd", "sens_back",
-            "sensitivity", "deadzone", "smoothing_window", 
+            "sensitivity", "deadzone", "smoothing_window",
+            "head_gain", "head_deadzone_deg",
             "max_speed", "yaw_sensitivity", "throttle_sensitivity",
             "mental_mappings"
         ]
