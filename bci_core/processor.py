@@ -72,6 +72,9 @@ class QuaternionProcessor:
         self.head_heading_deg: float = 0.0
         # The head's own angle, before gain. Logged, not steered by.
         self.head_yaw_deg: float = 0.0
+        # The same angle before smoothing, so a capture can separate sensor
+        # noise from the smoothing window's lag.
+        self.head_yaw_raw_deg: float = 0.0
         self.invert_yaw: bool = False
         # Forward/back, separately from left/right: a headset can disagree with
         # the base orientation on one axis without disagreeing on both.
@@ -170,6 +173,7 @@ class QuaternionProcessor:
         if self.invert_yaw:
             angle = -angle
 
+        self.head_yaw_raw_deg = angle
         self._angle_buffer.append(angle)
         smoothed = sum(self._angle_buffer) / len(self._angle_buffer)
         self.head_yaw_deg = smoothed

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cortex import Cortex
 from bci_core.program import ProgramSimulator
 from drone_adapter import DroneAdapter
+from motion_capture import MotionCapture
 
 
 class TelloDroneClient:
@@ -56,6 +57,11 @@ class TelloDroneClient:
         self.latest_raw_mot = ""
         self.latest_raw_com = ""
         self.q_indices = None
+
+        # A full-rate CSV of the first minute, for measuring drift that the
+        # once-a-second steering log is too coarse to show.
+        self.capture = MotionCapture(config.get("motion_capture_seconds", 60)
+                                     if config else 60)
 
         # Bookkeeping for the once-a-second steering report; see _log_steering.
         self._steer_last_log = 0.0
@@ -302,6 +308,10 @@ class TelloDroneClient:
 
         motion = [timestamp, 0, 0, w, x, y, z]
         dx, dy = self.program.receive_motion(motion)
+        qp = self.program.quaternion_processor
+        self.capture.write(w, x, y, z, qp.is_calibrated,
+                           qp.head_yaw_raw_deg, qp.head_yaw_deg,
+                           qp.head_heading_deg)
         self._log_steering(dx)
 
         if dx != 0 or dy != 0:
@@ -332,6 +342,9 @@ class TelloDroneClient:
             self._steer_was_calibrated = calibrated
             print("[steer] calibrated, centre captured" if calibrated
                   else "[steer] calibrating, hold still", flush=True)
+            if not self.capture._done:
+                print(f"[steer] recording motion to {self.capture.path}",
+                      flush=True)
             print(f"[steer] config gain={qp.head_gain:.1f} "
                   f"expo={qp.head_expo:.2f} "
                   f"deadzone={qp.head_deadzone_deg:.1f}deg "

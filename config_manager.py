@@ -51,6 +51,12 @@ DEFAULT_CONFIG = {
     # lower head_gain instead if you want less turn everywhere.
     "head_expo": 0.6,
 
+    # Seconds of full-rate motion data written to motion-capture.csv at the
+    # start of each session, overwriting the previous one. Diagnostics only:
+    # it is what makes a fraction-of-a-degree drift measurable instead of
+    # guessed at. 0 turns it off.
+    "motion_capture_seconds": 60,
+
     # Head-tilt response per direction. Without these the app fell back to a
     # literal in _apply_config_to_client, so a fresh install flew differently
     # from a tuned checkout for no visible reason.
