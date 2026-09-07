@@ -316,6 +316,11 @@ class TelloDroneClient:
     # secret; -32004 is an app that is not authorised for this user.
     CREDENTIAL_ERRORS = {-32001, -32002, -32004, -32012}
 
+    # A profile another application loaded on the headset. -32127 is "a profile
+    # is already loaded, unload it first"; -32046 is "this profile was loaded by
+    # another application". Neither is something this app can resolve on its own.
+    PROFILE_LOCKED_ERRORS = {-32046, -32127}
+
     def on_inform_error(self, *args, **kwargs):
         error_data = kwargs.get('error_data') or {}
         error_msg = f"Cortex error: {error_data}"
@@ -330,6 +335,13 @@ class TelloDroneClient:
         # started, and the credentials screen is where the user can act on it.
         if code in self.CREDENTIAL_ERRORS or not getattr(self.c, 'authorized', False):
             self.bci_status_callback(f"AUTH_FAILED:{message or error_data}")
+        elif code in self.PROFILE_LOCKED_ERRORS:
+            # The app clears the headset before training, so reaching here
+            # means Cortex would not let go of the profile. Only EMOTIV
+            # Launcher can release it, and the raw message does not say so.
+            self.bci_status_callback(
+                "Another application is holding a training profile on this "
+                "headset. Close the profile in EMOTIV Launcher, then try again.")
         else:
             self.bci_status_callback(error_msg)
 
@@ -431,12 +443,13 @@ class TelloDroneClient:
         """Load a specific training profile by name (called from the UI)."""
         if not profile_name:
             return
-        self.c.set_wanted_profile(profile_name)
         print(f"[load_profile] Loading profile: '{profile_name}'", flush=True)
         if self.bci_status_callback:
             self.bci_status_callback(f"Loading profile '{profile_name}'...")
         try:
-            self.c.setup_profile(profile_name, 'load')
+            # Via prepare_profile so anything the Launcher or a previous run
+            # left loaded on the headset is cleared first.
+            self.c.prepare_profile(profile_name, 'load')
         except Exception as e:
             print(f"[load_profile] Error: {e}", flush=True)
             if self.bci_status_callback:
@@ -617,10 +630,14 @@ class TelloDroneClient:
     # Training
     # ──────────────────────────────────────────────
     def create_and_train_profile(self, profile_name: str):
-        """Create a new profile. The training process continues once it is loaded."""
+        """Create a new profile. The training process continues once it is loaded.
+
+        The headset can only hold one profile, and Cortex will not let us train
+        against one another application loaded. prepare_profile unloads
+        whatever is sitting there before the create goes out.
+        """
         print(f"Requesting creation of profile: {profile_name}")
-        self.c.profile_name = profile_name
-        self.c.setup_profile(profile_name, 'create')
+        self.c.prepare_profile(profile_name, 'create')
 
     def start_training(self, action: str):
         """Start training for a specific action (e.g. 'neutral', 'push')"""

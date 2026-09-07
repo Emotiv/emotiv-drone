@@ -103,6 +103,11 @@ class Cortex(Dispatcher):
         self.debit = 10
         self.license = ''
         self.isHeadsetConnected = False
+        # What to do once the headset has no profile loaded on it. Cortex
+        # refuses to load a second profile (-32127) and refuses training
+        # against one another application owns (-32046), so create/load is
+        # always preceded by an unload and resumed from here afterwards.
+        self.pending_profile_action = None
 
         self.client_id = client_id or ''
         self.client_secret = client_secret or ''
@@ -145,6 +150,30 @@ class Cortex(Dispatcher):
 
     def set_wanted_profile(self, profile_name):
         self.profile_name = profile_name
+
+    def prepare_profile(self, profile_name, action='create'):
+        """Clear the headset of any loaded profile, then create or load ours.
+
+        A headset holds one profile at a time, and whoever loaded it keeps it:
+        EMOTIV Launcher leaves its own profile loaded, and a previous run of
+        this app that exited without unloading leaves one too. Going straight
+        to setupProfile from there fails twice over -- load returns -32127 ('a
+        profile is already loaded'), and training against the survivor returns
+        -32046 ('loaded by another application'), which is what stalled the
+        neutral training screen.
+
+        getCurrentProfile answers what is on the headset; the reply handler
+        unloads it and calls back into _resume_profile_action().
+        """
+        self.profile_name = profile_name
+        self.pending_profile_action = action
+        self.get_current_profile()
+
+    def _resume_profile_action(self):
+        """Run the create/load deferred by prepare_profile."""
+        action = self.pending_profile_action or 'load'
+        self.pending_profile_action = None
+        self.setup_profile(self.profile_name, action)
 
     def on_open(self, *args, **kwargs):
         print("websocket opened")
@@ -312,28 +341,37 @@ class Cortex(Dispatcher):
                 print('load profile successfully')
                 self.emit('load_unload_profile_done', isLoaded=True)
             elif action == 'unload':
-                self.emit('load_unload_profile_done', isLoaded=False)
+                # An unload is either the user finishing up or the first half
+                # of prepare_profile clearing the way. Only the second has
+                # something queued behind it.
+                if self.pending_profile_action:
+                    self._resume_profile_action()
+                else:
+                    self.emit('load_unload_profile_done', isLoaded=False)
             elif action == 'save':
                 self.emit('save_profile_done')
             elif action == 'delete':
                 self.emit('delete_profile_done', name=result_dic.get('name', ''))
         elif req_id == GET_CURRENT_PROFILE_ID:
             print(result_dic)
-            name = result_dic['name']
-            if name is None:
-                # no profile loaded with the headset
-                print('get_current_profile: no profile loaded with the headset ' + self.headset_id)
-                self.setup_profile(self.profile_name, 'load')
+            name = result_dic.get('name')
+            loaded_by_this_app = bool(result_dic.get('loadedByThisApp'))
+            if not name:
+                print('no profile loaded on headset ' + self.headset_id)
+                self._resume_profile_action()
+            elif (name == self.profile_name and loaded_by_this_app
+                    and self.pending_profile_action != 'create'):
+                # Already exactly where we want to be.
+                print('profile ' + name + ' is already loaded by this app')
+                self.pending_profile_action = None
+                self.emit('load_unload_profile_done', isLoaded=True)
             else:
-                loaded_by_this_app = result_dic['loadedByThisApp']
-                print('get current profile rsp: ' + name + ", loadedByThisApp: " + str(loaded_by_this_app))
-                if name != self.profile_name:
-                    warnings.warn("There is profile " + name + " is loaded for headset " + self.headset_id)
-                elif loaded_by_this_app == True:
-                    self.emit('load_unload_profile_done', isLoaded=True)
-                else:
-                    self.setup_profile(self.profile_name, 'unload')
-                    # warnings.warn("The profile " + name + " is loaded by other applications")
+                # Unload by the name Cortex reported, not by the name we want.
+                # The leftover is usually EMOTIV Launcher's own profile, and
+                # asking to unload a profile that is not the loaded one does
+                # nothing at all.
+                print('unloading profile ' + name + ' left on the headset')
+                self.setup_profile(name, 'unload')
         elif req_id == DISCONNECT_HEADSET_ID:
             print("Disconnect headset " + self.headset_id)
             self.headset_id = ''
@@ -378,6 +416,13 @@ class Cortex(Dispatcher):
     def handle_error(self, recv_dic):
         req_id = recv_dic['id']
         print('handle_error: request Id ' + str(req_id))
+        if req_id == SETUP_PROFILE_ID and self.pending_profile_action:
+            # The unload prepare_profile queued this behind has failed, so the
+            # create or load will never run. Drop it rather than leave the
+            # training screen waiting on an event that is not coming.
+            print('profile preparation failed, dropping pending '
+                  + self.pending_profile_action)
+            self.pending_profile_action = None
         self.emit('inform_error', error_data=recv_dic['error'])
     
     def handle_warning(self, warning_dic):
