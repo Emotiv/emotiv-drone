@@ -21,6 +21,7 @@ from cortex import Cortex
 from bci_core.program import ProgramSimulator
 from drone_adapter import DroneAdapter
 from motion_capture import MotionCapture
+from pipeline_log import StreamStat
 
 
 class TelloDroneClient:
@@ -62,6 +63,16 @@ class TelloDroneClient:
         # once-a-second steering log is too coarse to show.
         self.capture = MotionCapture(config.get("motion_capture_seconds", 60)
                                      if config else 60)
+
+        # Liveness for each Cortex stream, and the heartbeat that reports all
+        # of them together; see _heartbeat.
+        self.streams = {name: StreamStat(name) for name in ("mot", "com", "dev")}
+        self._beat_last = 0.0
+        self._last_action = None
+        self._last_action_at = 0.0
+        self._com_counts = {}
+        self._contact = (0, 0)
+        self._battery = 0
 
         # Bookkeeping for the once-a-second steering report; see _log_steering.
         self._steer_last_log = 0.0
@@ -219,10 +230,21 @@ class TelloDroneClient:
         signal = _as_int(data.get('signal', 0))
         battery = _as_int(data.get('batteryPercent', 0))
         dev_cq = [_as_int(v) for v in (data.get('dev', []) or [])]
+
+        line = self.streams["dev"].mark()
+        if line:
+            print(line, flush=True)
+        self._battery = battery
+        # Electrodes only; OVERALL rides in the same list and is not one.
+        electrodes = dev_cq[:len(self.dev_labels)] if self.dev_labels else dev_cq
+        self._contact = (sum(1 for v in electrodes if v >= 3), len(electrodes))
         if self.bci_telemetry_callback:
             self.bci_telemetry_callback(battery, signal)
         if self.dev_data_callback:
             self.dev_data_callback(signal, dev_cq)
+        # Driven from all three streams, not just mot: a heartbeat that only
+        # ticks on motion data cannot report that motion data has stopped.
+        self._heartbeat()
 
     def on_headset_connected(self, *args, **kwargs):
         msg = "Headset connected (warning code 104)"
@@ -306,6 +328,10 @@ class TelloDroneClient:
         if w is None:
             return
 
+        line = self.streams["mot"].mark()
+        if line:
+            print(line, flush=True)
+
         motion = [timestamp, 0, 0, w, x, y, z]
         dx, dy = self.program.receive_motion(motion)
         qp = self.program.quaternion_processor
@@ -313,11 +339,78 @@ class TelloDroneClient:
                            qp.head_yaw_raw_deg, qp.head_yaw_deg,
                            qp.head_heading_deg)
         self._log_steering(dx)
+        self._heartbeat()
 
         if dx != 0 or dy != 0:
             self.drone.move_by(dx, dy)
         else:
             self.drone.stop_movement()
+
+    # Every stage of the pipeline on one line, often enough to see a problem
+    # start and rarely enough to read. Five seconds also gives com -- which is
+    # event driven and bursty -- a long enough window to average sensibly.
+    HEARTBEAT_INTERVAL = 5.0
+
+    def _heartbeat(self):
+        """Print the state of every stage, and flag any stream that died.
+
+        Deliberately one line rather than several. The failures worth catching
+        are relational -- mot arriving but heading stuck, com arriving but
+        never firing, both fine but contact quality collapsed -- and those are
+        obvious side by side and invisible scattered through a log.
+        """
+        for stat in self.streams.values():
+            line = stat.check_stall()
+            if line:
+                print(line, flush=True)
+
+        now = time.time()
+        if self._beat_last == 0.0:
+            # Start the clock at the first sample rather than at zero, so the
+            # first beat measures a real window. Reporting immediately divided
+            # one sample by a few microseconds and announced 2785 Hz.
+            self._beat_last = now
+            return
+        if now - self._beat_last < self.HEARTBEAT_INTERVAL:
+            return
+        self._beat_last = now
+
+        # Before any stream has ever delivered, there is nothing to report and
+        # the connection steps are already logging their own progress.
+        if not any(s.first_at for s in self.streams.values()):
+            return
+
+        qp = self.program.quaternion_processor
+        lr, fb, ud, yaw = self.drone.get_rc_values()
+
+        rates = " ".join(
+            f"{name} {self.streams[name].rate():.0f}Hz"
+            + ("(STALLED)" if self.streams[name].stalled else "")
+            for name in ("mot", "com", "dev"))
+
+        # What Cortex actually classified this window, strongest first. A
+        # profile that only ever emits neutral looks identical to a dead com
+        # stream from the outside, and this separates them.
+        if self._com_counts:
+            total = sum(self._com_counts.values())
+            seen = " ".join(
+                f"{k}:{v * 100 // total}%"
+                for k, v in sorted(self._com_counts.items(),
+                                   key=lambda kv: -kv[1])[:3])
+        else:
+            seen = "-"
+        self._com_counts = {}
+
+        good, of = self._contact
+        action = self._last_action or "none"
+        if self._last_action and now - self._last_action_at > 5.0:
+            action = f"{self._last_action}({now - self._last_action_at:.0f}s ago)"
+
+        print(f"[pipe] {rates} | head {qp.head_yaw_deg:+.1f}deg -> "
+              f"heading {qp.head_heading_deg:+.1f}deg "
+              f"{'(uncalibrated)' if not qp.is_calibrated else ''}| "
+              f"com [{seen}] fb={fb} action={action} | "
+              f"contact {good}/{of} battery {self._battery}%", flush=True)
 
     # Motion frames arrive at 32-64 Hz. One line per frame would bury the log
     # and the on-screen terminal, so the report is a once-a-second summary that
@@ -418,12 +511,26 @@ class TelloDroneClient:
         self.latest_raw_com = str(data)
         timestamp = data.get('time', time.time())
 
+        line = self.streams["com"].mark()
+        if line:
+            print(line, flush=True)
+        self._com_counts[action] = self._com_counts.get(action, 0) + 1
+
         mental = [timestamp, action, power]
         act, auto_release_time, should_execute = self.program.receive_mental(mental)
         self._log_mental(action, power, act, should_execute)
         if should_execute:
-            print(f"Executing mental action: {act}", flush=True)
+            # Only the edges. Cortex repeats a held command many times a
+            # second, and a line each was drowning the log in the exact
+            # stretch anyone would be reading it -- hundreds of identical
+            # "time refreshed" lines around whatever actually went wrong.
+            if self._last_action != act:
+                print(f"[mental] '{action}' {power:.2f} fired -> {act}",
+                      flush=True)
+            self._last_action = act
+            self._last_action_at = time.time()
             self.drone.execute_action(act, auto_release_time)
+        self._heartbeat()
 
     def _log_mental(self, command: str, power: float, action: str, fired: bool):
         """Report the mental command that did not quite make it.

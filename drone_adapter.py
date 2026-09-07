@@ -177,9 +177,12 @@ class DroneAdapter:
                 # Delegate movement to _rc_loop
                 with self.lock:
                     if self._mental_move_action == action and time.time() < self._mental_move_expiry:
-                        # Action is already running: refresh the timer without resetting velocity
+                        # Action is already running: refresh the timer without resetting velocity.
+                        # Silent on purpose -- Cortex repeats a held command
+                        # many times a second and a line each buried the log
+                        # under hundreds of identical refreshes. The heartbeat
+                        # reports that the action is still held.
                         self._mental_move_expiry = time.time() + move_duration
-                        print(f"[DroneAdapter] {action} time refreshed (+{move_duration}s)")
                     else:
                         # New action: start from speed 1
                         self._mental_move_action = action
