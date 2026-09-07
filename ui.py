@@ -73,6 +73,21 @@ SHOW_MOTION_TUNING = False
 # short enough that a queue of people waiting their turn keeps moving.
 RUN_SECONDS = 60
 
+# Put every ring straight down the drone's nose instead of offset to one side.
+#
+# Steering is head yaw off the motion sensors, and on some machines it does not
+# reach the drone at all -- see the [steer] lines in the log. Rings that need
+# steering are unwinnable there: the player thinks forward, flies past the ring
+# and never scores. Spawning them dead ahead keeps the demo playable on the one
+# skill that does work, the trained mental command, while the yaw problem is
+# still being tracked down.
+#
+# This is a stopgap and reads as one: the off-axis spawn below is intact, and
+# flipping this back to False restores it in full. The game is easier this way
+# -- forward is the only input needed -- which is the trade being made on
+# purpose.
+COINS_STRAIGHT_AHEAD = True
+
 
 # Branding assets, all optional. Each is looked up once and cached; a missing
 # file simply means that piece of chrome is not drawn, so the app runs from a
@@ -531,12 +546,22 @@ class DroneSimulatorWidget(QWidget):
     def spawn_coin(self):
         rad = math.radians(self.yaw)
         dist = random.uniform(150, 400)
-        offset = random.uniform(-120, 120)
+        # Sideways displacement from the drone's heading -- the part that has
+        # to be steered out. Zero puts the ring dead ahead.
+        offset = 0.0 if COINS_STRAIGHT_AHEAD else random.uniform(-120, 120)
 
         # Forward vector is (sin, -cos), Right vector is (cos, sin)
         cx = self.drone_x + math.sin(rad) * dist + math.cos(rad) * offset
         cz = self.drone_z - math.cos(rad) * dist + math.sin(rad) * offset
-        cy = random.uniform(15, 80)
+        if COINS_STRAIGHT_AHEAD:
+            # Height is worth keeping some variety in -- it still looks like a
+            # course rather than a corridor -- but it has to stay inside the
+            # collection radius on its own, since nothing the player can do
+            # changes altitude. The full 15-80 range puts a ring 60 units above
+            # a drone that never leaves y=20, which eats most of that radius.
+            cy = self.drone_y + random.uniform(-8.0, 22.0)
+        else:
+            cy = random.uniform(15, 80)
 
         self.coins.append([cx, cy, cz, random.uniform(0, 360), self.coin_counter])
         self.coin_counter += 1
