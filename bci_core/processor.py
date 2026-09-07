@@ -1,6 +1,7 @@
 from collections import deque
 from dataclasses import dataclass
 import math
+import time
 from typing import Tuple, Deque, List, Optional
 
 import numpy as np
@@ -67,6 +68,34 @@ class QuaternionProcessor:
         # which is what "less sensitive" almost always means -- calmer around
         # centre, not a smaller turning circle.
         self.head_expo: float = 0.6
+
+        # Drift correction. The headset's yaw estimate is a gyro integration
+        # with nothing pulling it back, so it ramps: measured at 1.81 deg/min
+        # on an INSIGHT2 over a recorded minute of the wearer sitting still,
+        # monotonic and never reversing. One run hides it inside the deadzone;
+        # a session left open across a queue of people does not, and position
+        # steering reads the accumulated ramp as a head turned off centre.
+        #
+        # A plain leak toward the current angle cannot cancel a ramp -- it
+        # settles at an offset proportional to the drift rate. This tracks the
+        # rate as well as the offset, so the error goes to zero rather than to
+        # a constant, and once the rate is learned the correction keeps working
+        # through head movement rather than only when still.
+        self.drift_correction: bool = True
+        # Adaptation stops past this much error, so a deliberate turn is never
+        # mistaken for drift and quietly eaten. Drift is held well inside it,
+        # so in practice the gate only trips when the wearer means it.
+        self.drift_gate_deg: float = 5.0
+        self.drift_rate_limit_deg_s: float = 3.0
+        # Roughly the time the correction takes to converge, in seconds.
+        self.drift_settle_s: float = 10.0
+
+        self._zero_deg: float = 0.0
+        self._drift_rate: float = 0.0
+        self._last_update: float = 0.0
+        # Injectable so drift correction can be replayed against recorded data
+        # at whatever speed, instead of only ever being testable in real time.
+        self.time_source = time.monotonic
         # Where the drone should be pointing, degrees off the calibrated
         # centre. Read by the simulator every frame.
         self.head_heading_deg: float = 0.0
@@ -112,6 +141,9 @@ class QuaternionProcessor:
         self._angle_buffer.clear()
         self.head_heading_deg = 0.0
         self.head_yaw_deg = 0.0
+        self._zero_deg = 0.0
+        self._drift_rate = 0.0
+        self._last_update = 0.0
 
     def accumulate_calibration_sample(self, w: float, x: float, y: float, z: float) -> None:
         self._calibration_samples.append(Quaternion(w, x, y, z))
@@ -154,7 +186,53 @@ class QuaternionProcessor:
         self._angle_buffer.clear()
         self.head_heading_deg = 0.0
         self.head_yaw_deg = 0.0
+        self._zero_deg = 0.0
+        self._drift_rate = 0.0
+        self._last_update = 0.0
         self._calibration_samples.clear()
+
+    def _correct_drift(self, angle: float) -> float:
+        """Subtract the headset's own slow rotation from the head's angle.
+
+        An alpha-beta tracker: the offset chases the error, and the rate
+        chases it too, one integration further out. Chasing the offset alone
+        would leave a standing error proportional to the drift rate, which is
+        the whole problem restated; carrying a rate term drives it to zero and
+        keeps cancelling drift during head movement, not just at rest.
+
+        Past drift_gate_deg the tracker stops learning but keeps applying what
+        it has already learned. That way a deliberate turn is not absorbed as
+        drift, while drift does not silently accumulate behind it.
+        """
+        if not self.drift_correction:
+            return angle
+
+        now = self.time_source()
+        if self._last_update == 0.0:
+            self._last_update = now
+            return angle
+        # Cap dt so a stall -- a paused debugger, a stream hiccup -- cannot
+        # slam the estimate with one enormous step.
+        dt = min(0.25, max(0.0, now - self._last_update))
+        self._last_update = now
+        if dt <= 0.0:
+            return angle - self._zero_deg
+
+        # Critically damped for the configured settling time.
+        tau = max(1.0, self.drift_settle_s)
+        k_offset = 2.0 / tau
+        k_rate = 1.0 / (tau * tau)
+
+        error = angle - self._zero_deg
+        if abs(error) < self.drift_gate_deg:
+            self._drift_rate += k_rate * error * dt
+            limit = self.drift_rate_limit_deg_s
+            self._drift_rate = max(-limit, min(limit, self._drift_rate))
+            self._zero_deg += (self._drift_rate + k_offset * error) * dt
+        else:
+            self._zero_deg += self._drift_rate * dt
+
+        return angle - self._zero_deg
 
     def _update_heading(self, relative_q: "Quaternion") -> None:
         """Turn the head's angle into the heading the drone should hold.
@@ -176,6 +254,7 @@ class QuaternionProcessor:
         self.head_yaw_raw_deg = angle
         self._angle_buffer.append(angle)
         smoothed = sum(self._angle_buffer) / len(self._angle_buffer)
+        smoothed = self._correct_drift(smoothed)
         self.head_yaw_deg = smoothed
 
         # Subtracting the deadzone instead of zeroing inside it keeps the

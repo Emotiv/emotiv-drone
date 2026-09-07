@@ -51,6 +51,13 @@ DEFAULT_CONFIG = {
     # lower head_gain instead if you want less turn everywhere.
     "head_expo": 0.6,
 
+    # The headset's yaw estimate is a gyro integration with nothing pulling it
+    # back, and it ramps -- measured at 1.81 deg/min on an INSIGHT2 with the
+    # wearer sitting still. Invisible over one run, about 3 degrees of heading
+    # after five minutes and 8 after ten. Off only for comparing against the
+    # old behaviour.
+    "head_drift_correction": True,
+
     # Seconds of full-rate motion data written to motion-capture.csv at the
     # start of each session, overwriting the previous one. Diagnostics only:
     # it is what makes a fraction-of-a-degree drift measurable instead of
@@ -271,6 +278,7 @@ class ConfigManager:
             "invert_yaw", "sens_left", "sens_right", "sens_fwd", "sens_back",
             "sensitivity", "deadzone", "smoothing_window",
             "head_gain", "head_deadzone_deg", "head_expo",
+            "head_drift_correction",
             "max_speed", "yaw_sensitivity", "throttle_sensitivity",
             "mental_mappings"
         ]

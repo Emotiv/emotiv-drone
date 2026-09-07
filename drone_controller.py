@@ -347,6 +347,7 @@ class TelloDroneClient:
                       flush=True)
             print(f"[steer] config gain={qp.head_gain:.1f} "
                   f"expo={qp.head_expo:.2f} "
+                  f"drift_correction={qp.drift_correction} "
                   f"deadzone={qp.head_deadzone_deg:.1f}deg "
                   f"limit={qp.head_limit_deg:.0f}deg "
                   f"invert_yaw={qp.invert_yaw} "
@@ -400,7 +401,8 @@ class TelloDroneClient:
         print(
             f"[steer] head {peak['head_deg']:+.1f}deg {side} "
             f"- deadzone {qp.head_deadzone_deg:.1f} x gain {qp.head_gain:.1f} "
-            f"-> heading {peak['heading_deg']:+.1f}deg lost_to={gate}",
+            f"-> heading {peak['heading_deg']:+.1f}deg lost_to={gate} "
+            f"| drift {qp._drift_rate * 60.0:+.1f}deg/min zero {qp._zero_deg:+.1f}deg",
             flush=True)
 
         self._steer_peak = 0.0
