@@ -19,3 +19,4 @@ emotiv-drone.log
 emotiv-drone.previous.log
 # Diagnostic capture written beside the log on a source run.
 motion-capture.csv
+motion-capture.previous.csv

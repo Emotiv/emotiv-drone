@@ -19,6 +19,7 @@ import time
 from app_paths import user_data_dir
 
 FILENAME = "motion-capture.csv"
+PREVIOUS_NAME = "motion-capture.previous.csv"
 
 HEADER = ("t_sec,q0,q1,q2,q3,calibrated,"
           "raw_angle_deg,smoothed_angle_deg,heading_deg\n")
@@ -35,6 +36,19 @@ class MotionCapture:
         self.path = os.path.join(user_data_dir(), FILENAME)
 
     def _open(self) -> bool:
+        try:
+            # Roll the last one aside first. A capture worth analysing is
+            # destroyed the moment the app is relaunched otherwise, and the
+            # relaunch is usually the thing you do right after noticing the
+            # problem you wanted the capture for. Same one-deep rollover the
+            # log uses, so there is still exactly one file to hand over.
+            if os.path.exists(self.path):
+                previous = os.path.join(user_data_dir(), PREVIOUS_NAME)
+                if os.path.exists(previous):
+                    os.remove(previous)
+                os.replace(self.path, previous)
+        except Exception:
+            pass
         try:
             self._handle = open(self.path, "w", encoding="utf-8", buffering=1)
             self._handle.write(HEADER)
