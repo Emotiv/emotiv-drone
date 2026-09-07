@@ -44,12 +44,17 @@ DEFAULT_CONFIG = {
     # comfortable look into a useful turn (3.0 makes 30 degrees of head into
     # 90 of heading), and head_deadzone_deg is subtracted rather than zeroed,
     # so it suppresses noise near centre without a step at its edge.
-    "head_gain": 3.0,
+    # 2.0 with 0.8 of expo, not the 3.0/0.6 this shipped with first. Those
+    # were a guess; these were flown. At 3.0/0.6 a ten degree glance swung the
+    # drone ten degrees and holding a line meant holding the head stiller than
+    # anyone does. Steering is also the one setting that has to be right out of
+    # the box, since it is what a first-time wearer judges the whole thing on.
+    "head_gain": 2.0,
     "head_deadzone_deg": 2.0,
     # Softens the response near centre without shrinking the turning range:
     # 0 is a straight line, 1 fully cubic. Raise it if steering feels twitchy,
     # lower head_gain instead if you want less turn everywhere.
-    "head_expo": 0.6,
+    "head_expo": 0.8,
 
     # The headset's yaw estimate is a gyro integration with nothing pulling it
     # back, and it ramps -- measured at 1.81 deg/min on an INSIGHT2 with the
@@ -219,6 +224,18 @@ class ConfigManager:
             changed = True
             print("[config] raised the inert deadzone to a working value",
                   flush=True)
+
+        # load_config writes the merged defaults straight back out, so a
+        # machine that ran the first release of head steering has 3.0/0.6
+        # saved and would never see a change of default. Move only the exact
+        # pair that shipped: either value differing means someone tuned it,
+        # and a tuned setting is not ours to overwrite.
+        if (config.get("head_gain") == 3.0
+                and config.get("head_expo") == 0.6):
+            config["head_gain"] = DEFAULT_CONFIG["head_gain"]
+            config["head_expo"] = DEFAULT_CONFIG["head_expo"]
+            changed = True
+            print("[config] adopted the flown steering defaults", flush=True)
 
         if config.get("invert_yaw") is True:
             config["invert_yaw"] = False
