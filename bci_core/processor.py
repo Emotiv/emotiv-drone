@@ -85,8 +85,15 @@ class QuaternionProcessor:
         # Adaptation stops past this much error, so a deliberate turn is never
         # mistaken for drift and quietly eaten. Drift is held well inside it,
         # so in practice the gate only trips when the wearer means it.
-        self.drift_gate_deg: float = 5.0
-        self.drift_rate_limit_deg_s: float = 3.0
+        # A held turn of a few degrees looks exactly like drift to a gate that
+        # only checks magnitude, which is how this failed. Tightened to the
+        # deadzone: inside it the wearer is producing no steering at all, so
+        # there is nothing there to mistake for drift.
+        self.drift_gate_deg: float = 2.0
+        # 3.0 deg/s let a runaway reach 180 deg/min unchallenged. Real drift
+        # here measures 0.03 deg/s, so anything past 0.1 is the estimator
+        # having learned something that is not drift.
+        self.drift_rate_limit_deg_s: float = 0.1
         # Roughly the time the correction takes to converge, in seconds.
         self.drift_settle_s: float = 10.0
 

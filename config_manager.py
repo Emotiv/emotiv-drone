@@ -56,12 +56,18 @@ DEFAULT_CONFIG = {
     # lower head_gain instead if you want less turn everywhere.
     "head_expo": 0.8,
 
-    # The headset's yaw estimate is a gyro integration with nothing pulling it
-    # back, and it ramps -- measured at 1.81 deg/min on an INSIGHT2 with the
-    # wearer sitting still. Invisible over one run, about 3 degrees of heading
-    # after five minutes and 8 after ten. Off only for comparing against the
-    # old behaviour.
-    "head_drift_correction": True,
+    # Off, and it earned that. The headset does drift -- 1.81 deg/min measured
+    # with the wearer still -- but a tracker cannot tell a slow ramp from a
+    # small turn somebody is holding on purpose, and in a real session it
+    # learned the steering instead: +40 deg/min against a true 1.81, walking
+    # its own zero out to 28 degrees. It injected twenty times the error it
+    # removed.
+    #
+    # The disease was mild anyway: 1.81 deg/min is under the deadzone for the
+    # whole of a 60 second run. What actually needed solving was drift
+    # accumulating between players, and the automatic recentre at the start of
+    # every run does that exactly and with no estimator to go wrong.
+    "head_drift_correction": False,
 
     # Seconds of full-rate motion data written to motion-capture.csv at the
     # start of each session, overwriting the previous one. Diagnostics only:
@@ -236,6 +242,14 @@ class ConfigManager:
             config["head_expo"] = DEFAULT_CONFIG["head_expo"]
             changed = True
             print("[config] adopted the flown steering defaults", flush=True)
+
+        # Anyone who installed while this defaulted on is carrying it in their
+        # saved config, where a changed default cannot reach them.
+        if config.get("head_drift_correction") is True:
+            config["head_drift_correction"] = False
+            changed = True
+            print("[config] disabled drift correction; it learned steering as drift",
+                  flush=True)
 
         if config.get("invert_yaw") is True:
             config["invert_yaw"] = False

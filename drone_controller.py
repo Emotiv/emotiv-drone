@@ -235,8 +235,13 @@ class TelloDroneClient:
         if line:
             print(line, flush=True)
         self._battery = battery
-        # Electrodes only; OVERALL rides in the same list and is not one.
-        electrodes = dev_cq[:len(self.dev_labels)] if self.dev_labels else dev_cq
+        # Electrodes only. OVERALL rides in the same list and is not one, and
+        # before the labels arrive there is nothing to slice against -- which
+        # is how the heartbeat reported "contact 5/6" for a five electrode
+        # Insight, counting OVERALL as a sensor that was always perfect.
+        labels = [l for l in self.dev_labels
+                  if l.upper() not in ("OVERALL", "OVERALL_QUALITY")]
+        electrodes = dev_cq[:len(labels)] if labels else dev_cq[:-1]
         self._contact = (sum(1 for v in electrodes if v >= 3), len(electrodes))
         if self.bci_telemetry_callback:
             self.bci_telemetry_callback(battery, signal)

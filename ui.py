@@ -3540,6 +3540,18 @@ class TelloControllerApp(QMainWindow):
         self._begin_timed_run()
 
     def _begin_timed_run(self):
+        # Recentre on the spot. The countdown has just finished, so the player
+        # is looking at the screen with their head where they mean it to be --
+        # the one moment in the whole flow when "straight ahead" is known
+        # rather than guessed. Whatever the headset accumulated while the
+        # previous player wore it, or during naming and training, goes with it.
+        #
+        # This is what drift correction was reaching for, without an estimator
+        # that can mistake a held turn for a drifting sensor.
+        if self.drone_client:
+            self.drone_client.reset_center()
+            self.log(t("log.recenter"))
+
         self.drone_sim.start_run(RUN_SECONDS)
         self._run_deadline = time.monotonic() + RUN_SECONDS
         self.run_timer.start(100)
