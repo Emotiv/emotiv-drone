@@ -6,11 +6,14 @@ Control a DJI Tello drone using only your mind and head movements. This project 
 
 ## 🚀 Key Features
 
-- **Intuitive Head Tracking**: Fly the drone naturally by tilting your head. 
-  - **Pitch Forward/Back**: Moves the drone forward and backward.
-  - **Roll Left/Right**: Tilts the drone to the side.
-  - **Yaw Control**: Turn your head to rotate the drone.
-- **Mental Command Integration**: Map trained thoughts (Push, Pull, Lift, etc.) to critical flight actions like **Take Off**, **Land**, or **Emergency Stop**.
+- **Head Steering**: Turn your head left or right and the drone points where you
+  are looking. Position control, not rate control — your head's angle *is* the
+  drone's heading, so it holds steady when you do and returns to centre when you
+  do. Head tilt is deliberately ignored; see
+  [HOW_IT_WORKS.md](HOW_IT_WORKS.md) for why.
+- **Mental Command Integration**: A trained thought flies the drone forward.
+  `push` maps to **MoveForward** by default; the mapping and its activation
+  threshold live in `config.json`.
 - **Real-time Telemetry & Video**: The dashboard provides a live H.264 video feed from the drone and displays real-time battery status, altitude, temperature, and RC command logs.
 - **Premium Dark Dashboard**: A custom-built PyQt6 interface designed for professional BCI experimentation.
 - **60-second Ring Run**: A timed score attack in the simulator — collect glowing rings against the clock, then see where you landed on a local leaderboard. Built for passing one headset around a room: finish a run, hand over, next person trains and plays.
@@ -53,15 +56,37 @@ A PyQt6-based graphical interface that provides:
 - Telemetry visualization.
 - Interactive configuration of sensitivity and mental command thresholds.
 
+> **Working on the code?** [HOW_IT_WORKS.md](HOW_IT_WORKS.md) is the developer
+> guide: the full pipeline from Cortex stream to drone, the steering maths and
+> why the control model is what it is, the diagnostics to read when it
+> misbehaves, and the configuration and build details.
+
+### 5. Diagnostics (`applog.py`, `pipeline_log.py`, `motion_capture.py`)
+Three layers, because these failures usually happen on someone else's machine:
+a file log that survives the window closing, a `[pipe]` heartbeat every five
+seconds carrying every stage of the pipeline at once, and a full-rate CSV of the
+first minute of head motion for anything a one-second log is too coarse to
+answer.
+
 ---
 
 ## 🔒 Security & Configuration
 
 We've implemented a split-configuration system to keep your development environment secure:
 
-- **`config.json`**: Stores your sensitivity settings, flight limits, and mental command mappings. This file **is tracked** by Git, allowing you to share your fine-tuned flight profiles.
-- **`credentials.json`**: Stores your sensitive Emotiv Client ID and Secret. This file is **automatically ignored** by Git to prevent accidental exposure of your credentials.
-- **`config_manager.py`**: Automatically handles the merging and splitting of these files during runtime.
+- **`config.json`**: Steering feel, mental command mappings and thresholds, and
+  per-model overrides.
+- **`credentials.json`**: Your Emotiv Client ID and Secret. Git-ignored. The app
+  ships with none and asks on first launch.
+- **`config_manager.py`**: Merges `DEFAULT_CONFIG` with what is on disk, runs
+  `migrate()`, and splits the two files on save.
+
+**Both live beside the source in a checkout, and in the per-user data directory
+in an installed build** (`%APPDATA%\EmotivDrone` on Windows). The copy in the
+repository is therefore *not* what a built application reads — settings do not
+travel with the installer. Anything that should be everyone's default belongs in
+`DEFAULT_CONFIG`, with a migration for machines that already have the old value
+written to disk.
 
 ---
 
@@ -117,9 +142,18 @@ back on without touching anything else:
 
 | Flag | Off means |
 | :--- | :--- |
-| `SHOW_AUTH_PAGE` | The credentials form is not a step. `cortex.py` carries the Cortex client id and secret, so it collects nothing the app uses. It is now a **Connection problem** screen, reached only on failure — see below. |
-| `SHOW_MOTION_TUNING` | No ⚙ Configurations button, which is where head-tilt and deadzone tuning now lives. **🎯 Recenter** is the one motion control on the page. Values still come from `config.json`. |
+| `SHOW_MOTION_TUNING` | No ⚙ Configurations button, which is where the motion tuning now lives. **🎯 Recenter** is the one motion control on the page. Values still come from `config.json`. |
 | `SHOW_PROFILE_LIST` | No list of past profiles; each player types their own name. |
+
+One more, and it is a stopgap rather than a preference:
+
+| Flag | On means |
+| :--- | :--- |
+| `COINS_STRAIGHT_AHEAD` | Rings spawn dead ahead of the drone rather than off to one side, so a run can be flown on forward motion alone. It dates from a period when steering did not work; steering works now, and setting it `False` restores the real game. |
+
+The credentials screen is not a flag. The app ships with no credentials, asks
+once on first launch, saves them after EMOTIV Launcher approves, and never asks
+again — after that the same screen is only reached on a connection failure.
 
 ### The log file
 
@@ -384,37 +418,54 @@ adapter names them in English CamelCase (`MoveForward`) because that is what the
 config file and the Cortex layer speak; without that lookup the in-game banner
 printed the raw identifier in every language.
 
-### Head Tracking Controls
-| Movement | Drone Action |
-| :--- | :--- |
-| **Tilt Forward** | Pitch Forward |
-| **Tilt Backward** | Pitch Backward |
-| **Tilt Side-to-Side** | Roll Left / Right |
-| **Turn Head** | Yaw (Rotate) |
+### The controls, in full
 
-### Default Mental Mappings
-- **Push**: Take Off
-- **Pull**: Land
-- **Drop**: Emergency Stop (Cuts motors instantly)
-- **Lift**: Flip Forward
+| Input | Effect |
+| :--- | :--- |
+| **Turn your head left / right** | The drone points where you are looking, and holds there. |
+| **Your trained command** (`push`) | The drone flies forward while you hold the thought. |
+| **Tilt your head** | Nothing, on purpose. |
+
+Head steering is absolute: 10° of head is 3.4° of heading, 30° is 21°, and
+letting your head come back to centre brings the drone back with it. The curve
+is set by `head_gain` and `head_expo` — see
+[HOW_IT_WORKS.md](HOW_IT_WORKS.md#3-steering-the-heads-angle-is-the-heading).
+
+### Default mental mappings
+
+| Command | Action |
+| :--- | :--- |
+| `push` | `MoveForward` |
+| `pull`, `lift`, `drop` | `None` |
+
+Take-off, landing and emergency stop are real actions in `drone_adapter.py` and
+map fine, but nothing uses them: there is no drone to take off. A run is one
+trained command and your head.
 
 ---
 
 ## 📁 Repository Structure
 
 ```text
-├── .github/workflows/  # macOS + Windows build pipeline
-├── bci_core/           # Signal processing and BCI logic
-├── certificates/       # SSL certificates for Emotiv connection
-├── packaging/          # PyInstaller spec
+├── .github/workflows/  # CI build pipeline (Windows installers are built locally now)
+├── assets/             # Optional branding artwork and headset product shots
+├── bci_core/           # Signal processing — see bci_core/README.md
+│   ├── processor.py    #   QuaternionProcessor: head angle -> drone heading
+│   ├── mental.py       #   MentalCommandProcessor: threshold lookup
+│   └── program.py      #   ProgramSimulator: thin adapter over both
+├── certificates/       # rootCA.pem for the Cortex TLS connection
+├── packaging/          # PyInstaller spec, Inno Setup script, icon builder
 ├── app_paths.py        # Resource and user-data paths (source vs. bundle)
-├── config_manager.py   # Secure configuration handler
-├── cortex.py           # Emotiv Cortex API wrapper
-├── drone_adapter.py    # BCI to Tello command translator
-├── drone_controller.py # Core background engine
+├── applog.py           # File log with rollover, and the excepthook into it
+├── config_manager.py   # DEFAULT_CONFIG, DEVICE_DEFAULTS, migrate()
+├── cortex.py           # Emotiv Cortex JSON-RPC client and event dispatcher
+├── drone_adapter.py    # Mental commands -> RC velocities (head motion no longer)
+├── drone_controller.py # TelloDroneClient: binds Cortex events to everything else
 ├── i18n.py             # English / 中文 translation table
 ├── leaderboard.py      # Local high scores for the Ring Run
-├── ui.py               # Graphical Dashboard
+├── motion_capture.py   # Full-rate motion CSV for diagnosing drift
+├── pipeline_log.py     # Stream rates and stall detection behind [pipe]
+├── ui.py               # PyQt6 dashboard and the drone simulator
 ├── run.sh              # Entry point script
 └── requirements.txt    # Project dependencies
 ```
@@ -423,19 +474,19 @@ printed the raw identifier in every language.
 
 ## 📦 Desktop Builds
 
-Prebuilt, **unsigned** installers for macOS (Apple Silicon) and Windows (x64)
-are produced by GitHub Actions — no Python install needed to run them. One file
-per platform: a `.dmg` for macOS, a `setup.exe` for Windows.
+Windows installers are built **locally**, and that is the supported path — see
+[Building locally](#building-locally) below. The GitHub Actions workflow that
+produced macOS and Windows artifacts is still in `.github/workflows/`, but the
+project has been Windows-only in practice for a while and CI is not what ships.
+
+The installer is **unsigned**, so both Windows and macOS will warn on first
+open.
 
 Windows is packaged as an installer rather than a bare `.exe` on purpose. The
 PyInstaller build is *onedir* — the executable needs the `_internal` folder
 beside it — and the alternative, a single-file build, unpacks PyQt6, OpenCV and
 PyAV into `%TEMP%` on every launch, which costs 10–20 seconds of cold start. The
 installer puts the folder down once and keeps startup at a couple of seconds.
-
-**Getting one:** open the **Actions** tab → *Build desktop app* → pick a run →
-download `EMOTIV-Drone-BCI-macos-arm64` or `EMOTIV-Drone-BCI-windows-x64`.
-Pushing a `v*` tag also attaches both to a GitHub release.
 
 **Opening them past the OS warning** (they carry no developer signature):
 
@@ -470,8 +521,17 @@ iscc packaging/EmotivDrone.iss
 ```
 
 That writes `EMOTIV-Drone-BCI-windows-x64-setup.exe` to the repository root.
-Without `/DAppVersion=...` it is stamped `0.0.0`; CI passes the tag. A build only ever targets the OS it runs on — the
-Windows bundle has to come from a Windows machine (or the CI runner).
+Without `/DAppVersion=...` it is stamped `0.0.0`. A build only ever targets the
+OS it runs on, so the Windows bundle has to come from a Windows machine.
+
+Two things worth knowing before handing a build to someone:
+
+- **Settings do not travel with it.** `config.json` and `credentials.json` live
+  in the user data directory, not in the installer, so a machine you have tuned
+  and a fresh install behave differently unless the value is in `DEFAULT_CONFIG`.
+- **A fresh timestamp is not proof the build contains your change.** Read the
+  symbols back out of the shipped executable with
+  `PyInstaller.archive.readers` if it matters.
 
 ---
 
