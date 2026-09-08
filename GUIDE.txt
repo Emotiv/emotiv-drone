@@ -1,0 +1,457 @@
+===============================================================================
+EMOTIV DRONE BCI - HOW IT WORKS AND HOW TO RUN IT
+===============================================================================
+
+A plain text guide. Everything below applies to the Windows build, which is
+the one that ships.
+
+
+-------------------------------------------------------------------------------
+1. WHAT IT IS
+-------------------------------------------------------------------------------
+
+A game you play with an EMOTIV headset. A drone flies through a simulated sky
+and you collect rings for 60 seconds. There is no physical drone - everything
+happens on screen.
+
+You control it two ways, and only two:
+
+  Turning your head left or right   ->  the drone points where you look
+  Thinking your trained command     ->  the drone flies forward
+
+That is the whole control scheme. Tilting your head does nothing; that is
+deliberate, not a fault.
+
+It is built to be passed around. One person puts the headset on, trains it,
+plays a run, sees their score on the leaderboard, and hands it to the next
+person, who trains their own profile from scratch.
+
+
+-------------------------------------------------------------------------------
+2. WHAT YOU NEED
+-------------------------------------------------------------------------------
+
+Hardware
+
+  - An EMOTIV headset. Tested on INSIGHT and INSIGHT2. EPOC X and MN8 are
+    supported in the code.
+  - The USB dongle, or Bluetooth pairing, whichever your headset uses.
+  - A Windows PC, 64-bit.
+
+Software
+
+  - EMOTIV Launcher, installed, running, and signed in.
+  - The EMOTIV Drone BCI installer:
+    EMOTIV-Drone-BCI-windows-x64-setup.exe
+
+  You do NOT need Python installed. The installer contains everything.
+
+The one thing people forget
+
+  EMOTIV Launcher must be running BEFORE you start the app, and it must be
+  signed in. The app talks to the headset through Launcher, not directly. If
+  Launcher is closed, nothing works and the app will tell you so.
+
+
+-------------------------------------------------------------------------------
+3. INSTALLING
+-------------------------------------------------------------------------------
+
+  1. Run EMOTIV-Drone-BCI-windows-x64-setup.exe
+
+  2. Windows will show a blue "Windows protected your PC" box, because the
+     installer is not signed. Click "More info", then "Run anyway". This is
+     expected.
+
+  3. It installs for your user only, so it does not ask for an administrator
+     password. It adds a Start Menu entry and an uninstaller.
+
+  4. If the installer ever fails and leaves nothing installed, simply run it
+     again. It is not a broken download.
+
+Nothing else needs configuring. The app creates its own settings on first run.
+
+
+-------------------------------------------------------------------------------
+4. FIRST LAUNCH
+-------------------------------------------------------------------------------
+
+The first time you open it, two things happen once and never again.
+
+  a) It asks for your EMOTIV Client ID and Client Secret.
+
+     These come from your EMOTIV developer account. Paste them in. Once
+     Launcher accepts them they are saved, and you will not be asked again on
+     that machine.
+
+  b) EMOTIV Launcher pops up asking you to approve this application.
+
+     Approve it. Until you do, the app cannot see your headset. If you miss
+     the prompt, look at the Launcher window - it waits there.
+
+If either step fails, the app shows a "Connection problem" screen listing the
+likely causes in order, with the exact error underneath.
+
+
+-------------------------------------------------------------------------------
+5. PLAYING - THE FLOW
+-------------------------------------------------------------------------------
+
+Four screens, in order.
+
+STEP 1 - PICK A HEADSET
+
+  Every headset in range is listed, each with its picture, its ID, and its own
+  Connect button. Click Connect on the one you want, or double-click the row.
+
+  If your headset is not listed, press Refresh. Check it is switched on and
+  that Launcher can see it.
+
+STEP 2 - CHECK THE SENSORS
+
+  A head seen from above, with each sensor drawn where it actually sits on the
+  scalp. Green is good contact.
+
+  A percentage at the top summarises it. You need 50% or better before you can
+  start training. If a sensor is bad, the map shows you which one to reseat -
+  wet the felt, press it down, wait a moment.
+
+  Type the player's name here. That name becomes their training profile and
+  their leaderboard entry.
+
+STEP 3 - TRAIN
+
+  Two recordings, about eight seconds each.
+
+    NEUTRAL  Relax. Do not think about anything in particular. This teaches
+             the system what your resting brain looks like.
+
+    PUSH     Think one consistent thought, hard. It does not matter what the
+             thought is - pushing an object, a colour, a word - only that you
+             think the SAME thing every time, including during the game.
+
+  After each recording you can Accept or Reject it. Reject if you were
+  distracted; it retakes immediately.
+
+  When both are done the app reports how well separated they are. "Well
+  separated - good training" is what you want. If it says the two sit close
+  together, retrain - the game will be frustrating otherwise.
+
+STEP 4 - FLY
+
+  Press Start Run. A three-second countdown runs first - Get Ready, 3, 2, 1,
+  Go - so nobody's timed run begins while they are still looking at the button
+  they pressed.
+
+  Then 60 seconds. Each ring is 10 points. The clock turns red for the last
+  ten seconds.
+
+  At the end you get your score, your position, and the top five. Confetti for
+  the top three.
+
+  Then: Try Again, Show Leaderboard, or Finish - next player.
+
+HANDING OVER
+
+  "Finish - next player" deletes the trained profile, disconnects the headset,
+  rescans, and returns to the device list. The score stays on the leaderboard.
+
+  The next person starts clean, which is the point - a profile trained on one
+  person's brain does not work on another's.
+
+
+-------------------------------------------------------------------------------
+6. THE CONTROLS, IN DETAIL
+-------------------------------------------------------------------------------
+
+STEERING - turn your head
+
+  Your head's angle IS the drone's heading. Look 20 degrees right and the
+  drone points 20 degrees right and STAYS there. Bring your head back to
+  centre and the drone comes back with you.
+
+  It is not a steering wheel you hold over. It is more like the drone is
+  looking where you look.
+
+  Roughly:
+
+      head turned      drone turns
+         5 deg            1 deg
+        10 deg            3 deg
+        20 deg           10 deg
+        30 deg           21 deg
+        40 deg           40 deg
+
+  Small movements are gentle on purpose, so you can hold a line without
+  fighting it. Big deliberate looks give you a big turn.
+
+  Small movements under about 2 degrees are ignored, so breathing and
+  fidgeting do not wobble the drone.
+
+FLYING FORWARD - think your command
+
+  Hold the thought you trained. The drone accelerates smoothly over about a
+  second and keeps going while you hold it. Stop thinking it and the drone
+  coasts to a halt after about a second.
+
+  It has to be the SAME thought you trained with. This is the part people get
+  wrong: they train on one idea and then try a different one in the game.
+
+RECENTER
+
+  Sets your current head position as the new "straight ahead". Use it if the
+  drone seems to sit off to one side.
+
+  You rarely need it - the app recentres automatically at the start of every
+  run, at the moment the countdown ends and you are looking at the screen.
+
+TILTING YOUR HEAD
+
+  Does nothing. Nodding, looking up or down, tipping your head sideways - the
+  drone ignores all of it. This is intentional.
+
+
+-------------------------------------------------------------------------------
+7. HOW IT WORKS UNDER THE HOOD
+-------------------------------------------------------------------------------
+
+Useful if you are diagnosing something, or curious.
+
+THE CHAIN
+
+  headset -> EMOTIV Launcher -> Cortex service -> this app -> the drone
+
+  The app never talks to the headset directly. It connects to the Cortex
+  service that Launcher runs on your own machine, over a local secure
+  websocket. Cortex does the hard work - the signal processing and the
+  classification of your trained thought - and sends the app three streams of
+  data:
+
+      mot   The headset's orientation in space, about 32 times a second.
+      com   Which mental command Cortex thinks you are producing right now,
+            and how strongly, about 8 times a second.
+      dev   Electrode contact quality and battery, about twice a second.
+
+WHAT THE APP DOES WITH THEM
+
+  mot   The orientation arrives as a quaternion - a compact way of describing
+        a rotation without the wobbles you get from angles. The app compares
+        it against the reference it captured when you last recentred, works
+        out how far your head has turned left or right, smooths it slightly,
+        ignores anything tiny, and points the drone there.
+
+  com   Cortex reports a command name and a strength from 0 to 1. If the
+        strength clears the threshold - 0.5 by default - the app starts the
+        drone moving forward and keeps a one-second timer alive. Every further
+        report refreshes that timer, so holding the thought holds the motion.
+
+  dev   Drives the contact quality display, the head map, and the battery
+        indicator on the small headset badge.
+
+WHY STEERING BEHAVES THE WAY IT DOES
+
+  Earlier versions treated your head angle as a turn RATE - hold your head
+  over and the drone kept spinning. That felt wrong for two reasons. Any tiny
+  error in the centring made the drone rotate slowly forever, and to aim at
+  anything you had to turn, wait, and straighten up again, like steering a
+  boat.
+
+  It is now a position: your head's angle is the drone's heading, full stop.
+  Nothing builds up over time, and letting your head return to centre returns
+  the drone to centre.
+
+A NOTE ON DRIFT
+
+  The headset's sense of direction slowly wanders - measured at about 1.8
+  degrees per minute sitting perfectly still. That is small enough to be
+  invisible inside a single 60 second run.
+
+  It matters across a long session, which is why the app recentres at the
+  start of every run rather than trying to guess and subtract the drift. An
+  automatic correction was tried and removed: it could not tell a slow drift
+  from a small turn somebody was holding on purpose, and ended up fighting the
+  player.
+
+
+-------------------------------------------------------------------------------
+8. WHERE YOUR FILES LIVE
+-------------------------------------------------------------------------------
+
+Everything the app saves is in one folder:
+
+    %APPDATA%\EmotivDrone
+
+Paste that into the Windows Explorer address bar to open it. In full it is
+usually:
+
+    C:\Users\<your name>\AppData\Roaming\EmotivDrone
+
+What is in there:
+
+    config.json              Settings - steering feel, thresholds.
+    credentials.json         Your Client ID and Secret. Treat this like a
+                             password. Do not email it around.
+    leaderboard.json         The scores. One table per computer, nothing is
+                             uploaded anywhere.
+    emotiv-drone.log         The diagnostic log. See below.
+    emotiv-drone.previous.log
+    motion-capture.csv       Head movement data from the last session.
+    motion-capture.previous.csv
+
+Uninstalling does NOT delete this folder, so scores and settings survive a
+reinstall.
+
+IMPORTANT - settings do not travel with the installer
+
+  These files live on each machine. If you tune one computer and then install
+  the app on another, the second one goes back to the built-in defaults. To
+  copy a setup, copy config.json across after the first launch.
+
+
+-------------------------------------------------------------------------------
+9. WHEN SOMETHING GOES WRONG
+-------------------------------------------------------------------------------
+
+Open emotiv-drone.log in Notepad. It records everything, including from
+sessions you have already closed.
+
+THE MOST USEFUL LINE
+
+  Every five seconds the app writes a single line summarising the entire
+  chain. It looks like this:
+
+    [pipe] mot 32Hz com 8Hz dev 2Hz | head -0.4deg -> heading +0.0deg |
+           com [neutral:59% push:40%] fb=2 action=MoveForward |
+           contact 5/5 battery 78%
+
+  Read it left to right:
+
+    mot / com / dev     How fast each stream is arriving. These should be
+                        roughly 32, 8 and 2. A zero means that stream is dead.
+
+    head -> heading     How far your head is turned, and where the drone is
+                        being pointed as a result.
+
+    com [...]           What Cortex actually detected in the last five
+                        seconds, as percentages.
+
+    fb                  Forward speed. 0 means the drone is not moving.
+
+    action              The last command that fired, and how long ago.
+
+    contact / battery   Electrodes with good contact, and headset charge.
+
+COMMON PATTERNS
+
+  Symptom in the log                     What it means
+  ------------------------------------   -----------------------------------
+  mot at 32Hz but heading never moves     Data is arriving but the head is
+                                          not actually being turned.
+
+  com [neutral:100%] and it never          Cortex is working, but the trained
+  changes                                  command is too weak or was never
+                                           properly trained. Retrain.
+
+  com 0Hz                                  That stream has stopped. Check the
+                                           headset is still connected.
+
+  [stream] com STALLED                     Written the moment a stream goes
+                                           quiet, with how long for.
+
+  contact 2/5                              Electrodes, not software. Reseat
+                                           and rewet them.
+
+  [mental] 'push' peaked at 0.41,          Cortex sees your thought but it is
+  needs 0.50 -> not fired                  not strong enough. Retrain, or
+                                           lower the threshold in config.json.
+
+SPECIFIC PROBLEMS
+
+  "Connection problem" screen on startup
+      EMOTIV Launcher is not running, is not signed in, or has not approved
+      this application. Those three, in that order, cover nearly every case.
+      The exact error from Cortex is shown in the amber bar.
+
+  No headsets in the list
+      Turn the headset on. Confirm Launcher can see it. Press Refresh.
+
+  Training will not start
+      Contact quality is below 50%. Reseat the electrodes.
+
+  The drone will not move forward
+      Look for [mental] lines in the log. If the peaks are below the
+      threshold, the profile is under-trained. Retrain, thinking the same
+      thought more firmly and consistently.
+
+  The drone drifts to one side
+      Press Recenter. If it comes straight back, the headset has moved on your
+      head - reseat it.
+
+  Everything works but the score is zero
+      Check the log during the run. If it shows com [neutral:100%] and
+      fb=0 throughout, the mental command never fired.
+
+
+-------------------------------------------------------------------------------
+10. RUNNING FROM SOURCE
+-------------------------------------------------------------------------------
+
+Only needed if you are changing the code. Otherwise use the installer.
+
+    git clone https://github.com/giovaniemotiv/emotiv-drone.git
+    cd emotiv-drone
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    python ui.py
+
+When running this way, the settings and logs sit beside the source code
+instead of in %APPDATA%.
+
+BUILDING THE INSTALLER
+
+Needs PyInstaller and Inno Setup on PATH.
+
+    pip install pyinstaller
+    pyinstaller packaging/EmotivDrone.spec --noconfirm
+    iscc /DAppVersion=1.2.1 packaging/EmotivDrone.iss
+
+The first command writes the application into dist/. The second wraps it into
+EMOTIV-Drone-BCI-windows-x64-setup.exe in the project root.
+
+Two things to know:
+
+  - Without /DAppVersion the installer is stamped 0.0.0.
+  - A build only targets the operating system it was built on. The Windows
+    installer has to be built on Windows.
+
+For the code itself - the architecture, the maths, the reasoning behind the
+design decisions - see HOW_IT_WORKS.md in the repository.
+
+
+-------------------------------------------------------------------------------
+11. QUICK REFERENCE
+-------------------------------------------------------------------------------
+
+Before you start
+    EMOTIV Launcher running and signed in.
+
+The flow
+    Pick headset -> check sensors -> name and train -> fly 60 seconds.
+
+The controls
+    Turn your head        steer
+    Think your command    fly forward
+    Tilt your head        nothing
+
+Training
+    Neutral = relax. Push = one consistent thought, the same one you will use
+    in the game.
+
+Files
+    %APPDATA%\EmotivDrone
+
+When it breaks
+    emotiv-drone.log, and look for the [pipe] lines.
+
+===============================================================================

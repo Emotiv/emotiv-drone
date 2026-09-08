@@ -4,7 +4,15 @@ __pycache__/
 credentials.json
 # Local high scores — per machine, never shared
 leaderboard.json
+
+# OS and editor litter. Thumbs.db is the one that actually turns up here:
+# Explorer writes it into any folder whose images have been previewed, and
+# assets/ is a folder of PNGs someone opens to check the artwork.
 .DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
 
 # PyInstaller output
 build/
