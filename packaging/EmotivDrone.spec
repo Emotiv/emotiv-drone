@@ -14,13 +14,20 @@ APP_NAME = "EMOTIV Drone BCI"
 # one level up. Deriving it this way keeps the build independent of the cwd.
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 
-# Built from assets/logo_white.png by packaging/make_icon.py. Windows needs a
-# .ico; the source logo is white on transparent, which disappears against a
-# light taskbar, so the icon sits on the app's own dark rounded square.
+# Built from assets/logo_white.png by packaging/make_icon.py, which the build
+# workflow runs before PyInstaller. The source logo is white on transparent,
+# which disappears against a light taskbar, so the icons sit on the app's own
+# dark rounded square. None of them is checked in -- they are derived artwork,
+# and a stale committed icon is worse than none -- so the build tolerates their
+# absence rather than failing on a checkout where make_icon.py has not run.
 ICON = os.path.join(SPECPATH, "app_icon.ico")
+ICON_MAC = os.path.join(SPECPATH, "app_icon.icns")
 
 datas = [
     (os.path.join(ROOT, "certificates", "rootCA.pem"), "certificates"),
+    # The exe's own icon covers Explorer and the Start menu, but Qt draws the
+    # title bar from setWindowIcon, which reads this .ico and picks its frame.
+    *([(ICON, ".")] if os.path.exists(ICON) else []),
     (os.path.join(ROOT, "bg.png"), "."),
     # Branding artwork. Optional at runtime — brand_pixmap() returns None and
     # the chrome is simply not drawn — but a build without it looks unfinished.
@@ -57,7 +64,7 @@ exe = EXE(
     a.scripts,
     exclude_binaries=True,
     name=APP_NAME,
-    icon=ICON,
+    icon=ICON if os.path.exists(ICON) else None,
     debug=False,
     strip=False,
     upx=False,
@@ -77,6 +84,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name=f"{APP_NAME}.app",
+        icon=ICON_MAC if os.path.exists(ICON_MAC) else None,
         bundle_identifier="com.emotiv.dronebci",
         info_plist={
             "NSHighResolutionCapable": True,

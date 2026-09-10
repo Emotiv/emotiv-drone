@@ -24,12 +24,12 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QImage, QPixmap, QColor, QPalette, QPainter, QPen, QBrush,
-    QLinearGradient, QRadialGradient, QPolygonF,
+    QLinearGradient, QRadialGradient, QPolygonF, QIcon,
 )
 import math
 import random
 from config_manager import ConfigManager
-from app_paths import resource_path
+from app_paths import resource_path, window_icon_path
 import leaderboard
 import applog
 import i18n
@@ -5582,6 +5582,30 @@ class SettingsDialog(QDialog):
         # We still return the config just in case
         return self.config
 
+def _apply_app_icon(app):
+    """Put the app's own mark on the window, the Dock and the taskbar.
+
+    The executable carries an icon of its own, which is what Explorer and the
+    Start menu read, but Qt draws the title bar and the macOS Dock from
+    setWindowIcon and would otherwise show a default.
+    """
+    if os.name == "nt":
+        # Windows groups taskbar buttons by Application User Model ID, and a
+        # process that does not set one inherits the host interpreter's.
+        # Without this, a source run shows Python's icon whatever Qt is told.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "com.emotiv.dronebci")
+        except Exception:
+            # Cosmetic only, and shell32 is not worth failing a launch over.
+            pass
+
+    icon = window_icon_path()
+    if icon:
+        app.setWindowIcon(QIcon(icon))
+
+
 def main():
     # Before anything else, so a failure during construction is still recorded.
     path = applog.start()
@@ -5591,6 +5615,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLESHEET)
+    _apply_app_icon(app)
     window = TelloControllerApp()
     window.show()
     code = app.exec()

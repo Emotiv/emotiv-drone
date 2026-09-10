@@ -14,6 +14,12 @@ desktop.ini
 .vscode/
 .idea/
 
+# Icons are derived from assets/logo_white.png by packaging/make_icon.py, which
+# the build runs. The source artwork is committed; the generated icons are not.
+packaging/app_icon.ico
+packaging/app_icon.icns
+packaging/app_icon.iconset/
+
 # PyInstaller output
 build/
 dist/

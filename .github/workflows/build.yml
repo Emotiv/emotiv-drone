@@ -44,6 +44,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: Build icons
+        # Pillow is a build-time dependency only -- the spec excludes PIL from
+        # the bundle -- so it is installed here rather than in requirements.txt.
+        # On macOS this also produces the .icns via iconutil; on Windows that
+        # step no-ops and only the .ico is written.
+        run: |
+          python -m pip install pillow
+          python packaging/make_icon.py
+
       - name: Build
         run: pyinstaller packaging/EmotivDrone.spec --noconfirm
 
