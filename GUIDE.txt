@@ -398,7 +398,7 @@ SPECIFIC PROBLEMS
 
 Only needed if you are changing the code. Otherwise use the installer.
 
-    git clone https://github.com/giovaniemotiv/emotiv-drone.git
+    git clone https://github.com/Emotiv/emotiv-drone.git
     cd emotiv-drone
     python -m venv venv
     venv\Scripts\activate

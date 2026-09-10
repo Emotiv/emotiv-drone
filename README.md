@@ -4,6 +4,99 @@ Control a DJI Tello drone using only your mind and head movements. This project 
 
 ![UI Dashboard](bg.png)
 
+## 📥 Install and set up
+
+For someone installing the app. If you are working on the code, the source
+route is under [Installation & Setup](#-installation--setup-from-source).
+
+### 1. What you need first
+
+| | |
+|---|---|
+| **A DJI Tello drone** | Or none at all — the app has a **simulator**, so you can set everything up and fly without hardware. |
+| **An EMOTIV headset** | Insight, EPOC, EPOC+ or EPOC X. |
+| **An EMOTIV account** | Free, at [emotiv.com](https://www.emotiv.com/). The Launcher and your API credentials both hang off it. |
+| **EMOTIV Launcher** | The desktop program that talks to the headset and runs the Cortex service this app connects to. Install it from your account and **sign in**. |
+| **A computer** | Windows 10/11, or a Mac with Apple Silicon. There is no phone version — the Launcher is a desktop program. |
+
+The Launcher has to be **running and signed in** whenever you fly. It connects
+over `wss://localhost:6868`; no brain data leaves your machine.
+
+### 2. Create your own API credentials
+
+The app talks to Cortex as an *application*, and every person needs their own
+application key. They are free and take a minute to make.
+
+1. Sign in at [emotiv.com](https://www.emotiv.com/) and open
+   **[My Account → Cortex Apps](https://www.emotiv.com/my-account/cortex-apps/)**.
+2. Create a new application. Any name will do — it is only a label for your key.
+3. Copy the **Client ID** and the **Client Secret**.
+
+**The secret is shown once.** Copy it somewhere safe before closing the page; if
+you lose it, make a new application rather than hunting for it.
+
+The app asks for both on first launch and stores them in `credentials.json` in
+your own user data directory, never in the installer.
+
+### 3. Install the app
+
+Download from the
+[latest release](https://github.com/Emotiv/emotiv-drone/releases/latest):
+
+| Platform | File |
+|---|---|
+| Windows 10/11 (x64) | `EMOTIV-Drone-BCI-windows-x64-setup.exe` |
+| macOS 11+ (Apple Silicon) | `EMOTIV-Drone-BCI-macos-arm64.dmg` |
+
+Intel Macs are not covered — the build is Apple Silicon only, and Rosetta does
+not help with an arm64 binary.
+
+Neither build is **code-signed**, so both operating systems object the first
+time. Nothing is wrong with the download; there is no certificate on it yet.
+
+**Windows.** Run the installer. It installs for your user only — no admin
+rights, no UAC prompt — and adds a Start menu entry and an uninstaller.
+SmartScreen shows *"Windows protected your PC"*: click **More info** → **Run
+anyway**.
+
+**macOS.** Open the `.dmg` and drag the app to **Applications** first. Do not
+run it from the mounted image: that volume is read-only and flagged, so
+Gatekeeper blocks it there and the flag cannot even be cleared.
+
+macOS marks downloads with a quarantine flag, which for an unsigned app usually
+appears as *"EMOTIV Drone BCI is damaged and can't be opened"*. It is not
+damaged. Clear the flag once, in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/EMOTIV Drone BCI.app"
+```
+
+Then open it normally. On macOS 15 and later the old right-click → *Open* trick
+no longer works for unnotarised apps, which is why the command above is the one
+to use.
+
+macOS asks for **local network** permission on first run — allow it, or the app
+reaches neither Cortex nor the drone. It asks for **camera** access too, which
+is what the Tello's video stream arrives through.
+
+### 4. First run
+
+1. Start **EMOTIV Launcher**, sign in, and put the headset on.
+2. Open the app and paste your **Client ID** and **Client Secret** when it asks.
+3. Pick your headset, then a **trained profile**. The profile must be trained on
+   the *same headset model* you are using — an EPOC X profile will not load on
+   an Insight.
+4. Start with the **simulator** rather than a real drone. It flies the same
+   pipeline, so it is the right place to find out whether your mental commands
+   are reliable enough before anything leaves the ground.
+5. When you are ready for the real thing, connect to the Tello's Wi-Fi and
+   switch off the simulator.
+
+Read the **Safety Guidelines** at the end of this file before flying a real
+drone.
+
+---
+
 ## 🚀 Key Features
 
 - **Head Steering**: Turn your head left or right and the drone points where you
@@ -101,11 +194,11 @@ written to disk.
 
 ---
 
-## 📦 Installation & Setup
+## 📦 Installation & Setup (from source)
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/giovaniemotiv/emotiv-drone.git
+   git clone https://github.com/Emotiv/emotiv-drone.git
    cd emotiv-drone
    ```
 
@@ -474,13 +567,30 @@ trained command and your head.
 
 ## 📦 Desktop Builds
 
-Windows installers are built **locally**, and that is the supported path — see
-[Building locally](#building-locally) below. The GitHub Actions workflow that
-produced macOS and Windows artifacts is still in `.github/workflows/`, but the
-project has been Windows-only in practice for a while and CI is not what ships.
+Download links, the credentials walkthrough and the Gatekeeper and SmartScreen
+steps are up in [Install and set up](#-install-and-set-up). This section is
+about where those files come from.
 
-The installer is **unsigned**, so both Windows and macOS will warn on first
-open.
+Both installers are built by
+[`.github/workflows/build.yml`](.github/workflows/build.yml) on `macos-14` and
+`windows-latest`, and attached to a GitHub release:
+
+| Platform | File |
+|---|---|
+| macOS 11+ (Apple Silicon) | `EMOTIV-Drone-BCI-macos-arm64.dmg` |
+| Windows 10/11 (x64) | `EMOTIV-Drone-BCI-windows-x64-setup.exe` |
+
+To cut a release:
+
+```bash
+git tag v1.0.2
+git push origin v1.0.2
+```
+
+The tag builds both platforms, creates the release and attaches both files. The
+tag minus its leading `v` is the version stamped into the Windows installer.
+Running the workflow from the **Actions** tab builds identically, versions it
+`0.0.0` and leaves the results as workflow artifacts instead of publishing.
 
 Windows is packaged as an installer rather than a bare `.exe` on purpose. The
 PyInstaller build is *onedir* — the executable needs the `_internal` folder
@@ -488,23 +598,15 @@ beside it — and the alternative, a single-file build, unpacks PyQt6, OpenCV an
 PyAV into `%TEMP%` on every launch, which costs 10–20 seconds of cold start. The
 installer puts the folder down once and keeps startup at a couple of seconds.
 
-**Opening them past the OS warning** (they carry no developer signature):
-
-- **macOS** — mount the `.dmg`, drag the app to Applications, then right-click →
-  **Open** → **Open**. Double-clicking gives a dead-end "cannot be opened" dialog.
-  If Gatekeeper still refuses:
-  ```bash
-  xattr -dr com.apple.quarantine "/Applications/EMOTIV Drone BCI.app"
-  ```
-- **Windows** — run `EMOTIV-Drone-BCI-windows-x64-setup.exe`. On the SmartScreen
-  prompt choose **More info** → **Run anyway**. It installs per user, so it does
-  not ask for administrator rights, and it adds a Start Menu entry and an
-  uninstaller.
-
 EMOTIV Launcher must be running before you start the app, and it will ask you to
 approve access on first launch. Settings are stored per user, not next to the
-app: `~/Library/Application Support/EmotivDrone` on macOS,
-`%APPDATA%\EmotivDrone` on Windows — including the Ring Run leaderboard.
+app: `~/Library/Application Support/EmotivDrone` on macOS, `%APPDATA%\EmotivDrone`
+on Windows — including the Ring Run leaderboard.
+
+The icons are generated rather than committed: `packaging/make_icon.py` builds
+the Windows `.ico` and the macOS `.icns` from `assets/logo_white.png`, and the
+workflow runs it before PyInstaller, so changing the logo brings every icon with
+it.
 
 ### Building locally
 
