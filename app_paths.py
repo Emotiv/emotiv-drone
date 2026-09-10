@@ -46,3 +46,24 @@ def user_data_dir() -> str:
     path = os.path.join(base, APP_DIR_NAME)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def window_icon_path():
+    """The multi-size app icon, or None when it has not been generated.
+
+    Qt reads every frame out of a .ico and picks the size it needs, so this one
+    file serves the title bar, the alt-tab switcher and the taskbar alike.
+
+    Built by packaging/make_icon.py, which the release build runs. A checkout
+    that has never run it simply has no icon, which is not worth refusing to
+    start over -- so callers must handle None.
+    """
+    candidates = [
+        resource_path("app_icon.ico"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "packaging", "app_icon.ico"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None

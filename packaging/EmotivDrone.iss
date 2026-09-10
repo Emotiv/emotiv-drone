@@ -13,7 +13,7 @@
 #define AppName "EMOTIV Drone BCI"
 #define AppPublisher "EMOTIV"
 #define AppExe "EMOTIV Drone BCI.exe"
-#define AppURL "https://github.com/giovaniemotiv/emotiv-drone"
+#define AppURL "https://github.com/Emotiv/emotiv-drone"
 
 ; Overridden by the workflow with /DAppVersion=<tag>; 0.0.0 marks a local build.
 #ifndef AppVersion
