@@ -1,5 +1,5 @@
 """
-Drone Adapter – translates head motion deltas and mental commands into Tello RC commands.
+Drone Adapter - turns head motion deltas and mental commands into stick values.
 
 Maps:
   - Head yaw  (dx) → yaw_velocity  (rotation in place)
@@ -15,13 +15,12 @@ import time
 
 
 class DroneAdapter:
-    """Bridges the gap between bci_core motion output and Tello SDK calls."""
+    """Turns bci_core motion output into the four stick values the simulator flies."""
 
-    def __init__(self, tello=None, max_speed: int = 60,
+    def __init__(self, max_speed: int = 60,
                  yaw_sensitivity: float = 0.5,
                  throttle_sensitivity: float = 0.5,
                  altitude_hold: bool = True):
-        self.tello = tello  # djitellopy.Tello instance or None for simulation
         self.max_speed = max_speed
         self.yaw_sensitivity = yaw_sensitivity
         self.throttle_sensitivity = throttle_sensitivity
@@ -51,7 +50,7 @@ class DroneAdapter:
         self.last_action_time = 0.0
 
     # ──────────────────────────────────────────────
-    # RC command loop – Tello needs constant updates
+    # Stick loop - the values are refreshed continuously, like a real transmitter
     # ──────────────────────────────────────────────
     def start_rc_loop(self):
         """Begin sending RC commands at ~20Hz."""
@@ -72,11 +71,8 @@ class DroneAdapter:
             # Let get_rc_values handle the combination of mental + motion
             lr, fb, ud, yaw = self.get_rc_values()
 
-            if self.tello and self.is_flying:
-                try:
-                    self.tello.send_rc_control(lr, fb, ud, yaw)
-                except Exception as e:
-                    print(f"[DroneAdapter] RC send error: {e}")
+            # The values are read straight off this object by the simulator;
+            # nothing is transmitted anywhere.
             time.sleep(0.05)  # 20 Hz
 
     # ──────────────────────────────────────────────
@@ -141,9 +137,6 @@ class DroneAdapter:
             if action == "TakeOff":
                 if not self.is_flying:
                     print("[DroneAdapter] Taking off...")
-                    if self.tello: 
-                        self.tello.takeoff()
-                        self.tello.move_up(40)  # Ascend to ~1.6m
                     self.is_flying = True
                     self.start_rc_loop()
                 else:
@@ -153,7 +146,6 @@ class DroneAdapter:
                 if self.is_flying:
                     print("[DroneAdapter] Landing...")
                     self.stop_movement()
-                    if self.tello: self.tello.land()
                     self.is_flying = False
                 else:
                     print("[DroneAdapter] Ignored Land (already landed)")
@@ -161,7 +153,6 @@ class DroneAdapter:
             elif action == "EmergencyStop":
                 print("[DroneAdapter] EMERGENCY STOP!")
                 self.stop_movement()
-                if self.tello: self.tello.emergency()
                 self.is_flying = False
 
             elif action.startswith("Flip"):
@@ -169,7 +160,6 @@ class DroneAdapter:
                     direction = action.replace("Flip", "").lower()[0]  # f, b, l, r
                     if direction in ('f', 'b', 'l', 'r'):
                         print(f"[DroneAdapter] Flipping {direction}...")
-                        if self.tello: self.tello.flip(direction)
                 else:
                     print(f"[DroneAdapter] Ignored Flip (not flying)")
 
@@ -238,9 +228,4 @@ class DroneAdapter:
         """Safely stop everything."""
         self.stop_rc_loop()
         self.stop_movement()
-        if self.tello and self.is_flying:
-            try:
-                self.tello.land()
-            except Exception:
-                pass
-            self.is_flying = False
+        self.is_flying = False

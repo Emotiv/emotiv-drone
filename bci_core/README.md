@@ -6,7 +6,7 @@ hardware. Every measurement quoted in
 [HOW_IT_WORKS.md](../HOW_IT_WORKS.md) came from driving them directly or
 replaying a recorded session through them.
 
-`drone_controller.TelloDroneClient` owns one `ProgramSimulator` and reaches
+`drone_controller.BCIDroneClient` owns one `ProgramSimulator` and reaches
 through it for both processors.
 
 ---

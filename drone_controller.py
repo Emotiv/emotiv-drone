@@ -1,8 +1,8 @@
 """
-Tello Drone Controller
+EMOTIV Drone BCI controller
 
 Connects to the Emotiv Cortex API, processes head motion via QuaternionProcessor,
-and sends RC commands to the Tello drone via DroneAdapter.
+and turns both into stick values on DroneAdapter, which the simulator flies.
 
 Mental commands are mapped to discrete drone actions (TakeOff, Land, etc.).
 """
@@ -24,11 +24,11 @@ from motion_capture import MotionCapture
 from pipeline_log import StreamStat
 
 
-class TelloDroneClient:
-    """Neurogaming client that bridges Emotiv → Tello drone."""
+class BCIDroneClient:
+    """Bridges an EMOTIV headset to the drone simulator."""
 
     def __init__(self, client_id: str, client_secret: str,
-                 tello=None, fix_indices: bool = False,
+                 fix_indices: bool = False,
                  debug: bool = False, config: dict = None,
                  bci_status_callback=None, bci_telemetry_callback=None,
                  profiles_callback=None, headsets_callback=None,
@@ -91,7 +91,6 @@ class TelloDroneClient:
         
         # Configure the drone adapter
         self.drone = DroneAdapter(
-            tello=tello,
             max_speed=config.get("max_speed", 60),
             yaw_sensitivity=config.get("yaw_sensitivity", 0.5),
             throttle_sensitivity=config.get("throttle_sensitivity", 0.5),
@@ -969,7 +968,7 @@ app_config = ConfigManager.load_config()
 
 
 def main():
-    p = argparse.ArgumentParser(description="Tello Drone Controller via Emotiv BCI")
+    p = argparse.ArgumentParser(description="EMOTIV Drone BCI controller")
     default_id = app_config.get("client_id") if app_config.get("client_id") else os.environ.get('CORTEX_CLIENT_ID', '')
     default_secret = app_config.get("client_secret") if app_config.get("client_secret") else os.environ.get('CORTEX_CLIENT_SECRET', '')
 
@@ -987,25 +986,11 @@ def main():
     final_simulate = args.simulate or app_config.get("simulate", False)
     final_fix_indices = args.fix_indices or app_config.get("fix_indices", False)
 
-    # Connect to real Tello or None for simulation
-    tello = None
-    if not final_simulate:
-        try:
-            from djitellopy import Tello
-            tello = Tello()
-            tello.connect()
-            print(f"Battery: {tello.get_battery()}%")
-        except Exception as e:
-            print(f"Failed to connect to Tello: {e}")
-            print("Run with --simulate to test without a drone.")
-            return
-
     client_id = args.client_id if not final_simulate else 'SIM'
     client_secret = args.client_secret if not final_simulate else 'SIM'
 
-    client = TelloDroneClient(
+    client = BCIDroneClient(
         client_id, client_secret,
-        tello=tello,
         fix_indices=final_fix_indices,
         debug=args.debug,
         config=app_config
@@ -1031,7 +1016,7 @@ def main():
     client_thread.daemon = True
     client_thread.start()
 
-    print("=== Tello Drone BCI Controller ===")
+    print("=== EMOTIV Drone BCI ===")
     print("Press Ctrl+C to exit")
     print("==================================")
 
@@ -1041,11 +1026,6 @@ def main():
         print("\nShutting down...")
     finally:
         client.close()
-        if tello:
-            try:
-                tello.end()
-            except Exception:
-                pass
         print("Application terminated.")
 
 

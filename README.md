@@ -1,6 +1,8 @@
-# Emotiv Drone: BCI-Powered Flight Control
+# EMOTIV Drone BCI
 
-Control a DJI Tello drone using only your mind and head movements. This project bridges the **Emotiv EEG Headset** with the **DJI Tello Drone**, creating an immersive Brain-Computer Interface (BCI) for flight.
+Fly with your mind. Train mental commands on an EMOTIV headset, steer by turning
+your head, and fly a drone simulator through a timed ring run — no aircraft, no
+propellers, nothing to crash.
 
 ![UI Dashboard](bg.png)
 
@@ -13,7 +15,6 @@ route is under [Installation & Setup](#-installation--setup-from-source).
 
 | | |
 |---|---|
-| **A DJI Tello drone** | Or none at all — the app has a **simulator**, so you can set everything up and fly without hardware. |
 | **An EMOTIV headset** | Insight, EPOC, EPOC+ or EPOC X. |
 | **An EMOTIV account** | Free, at [emotiv.com](https://www.emotiv.com/). The Launcher and your API credentials both hang off it. |
 | **EMOTIV Launcher** | The desktop program that talks to the headset and runs the Cortex service this app connects to. Install it from your account and **sign in**. |
@@ -76,8 +77,7 @@ no longer works for unnotarised apps, which is why the command above is the one
 to use.
 
 macOS asks for **local network** permission on first run — allow it, or the app
-reaches neither Cortex nor the drone. It asks for **camera** access too, which
-is what the Tello's video stream arrives through.
+cannot reach Cortex.
 
 ### 4. First run
 
@@ -86,14 +86,8 @@ is what the Tello's video stream arrives through.
 3. Pick your headset, then a **trained profile**. The profile must be trained on
    the *same headset model* you are using — an EPOC X profile will not load on
    an Insight.
-4. Start with the **simulator** rather than a real drone. It flies the same
-   pipeline, so it is the right place to find out whether your mental commands
-   are reliable enough before anything leaves the ground.
-5. When you are ready for the real thing, connect to the Tello's Wi-Fi and
-   switch off the simulator.
-
-Read the **Safety Guidelines** at the end of this file before flying a real
-drone.
+4. Fly the **simulator**: hold your command, watch the stick values respond, and
+   start a timed ring run when it feels right.
 
 ---
 
@@ -113,19 +107,20 @@ drone.
 - **English and 中文**: Switch language from the header at any time — the whole interface follows immediately, no restart. Your choice is remembered in `config.json`.
 - **Simulation Mode**: Test your BCI mapping and head tracking precision in a safe software-only environment before taking flight.
 
-## 📡 How the Drone Connection Works
+## 📡 What flies the drone
 
-The connection between your computer and the DJI Tello is established over a dedicated WiFi link. Here is the step-by-step process:
+Nothing leaves your computer. The headset's data becomes four stick values —
+left/right, forward/back, up/down and yaw — exactly the four a real transmitter
+sends, refreshed twenty times a second, and the simulator flies them.
 
-1.  **Direct WiFi Link**: The DJI Tello acts as a WiFi Access Point. You must manually connect your computer's WiFi to the network broadcast by the drone (usually named `TELLO-XXXXXX`).
-2.  **Communication Protocol**: Once connected, the application uses the **Tello SDK** via the `djitellopy` library. Communication happens over UDP:
-    *   **Commands (Port 8889)**: For sending flight instructions (TakeOff, Land, RC movements).
-    *   **State (Port 8890)**: For receiving real-time telemetry (battery, altitude, etc.).
-    *   **Video (Port 11111)**: For streaming the live H.264 camera feed.
-3.  **Dashboard Integration**: When you click **"Connect to Drone"** in the UI:
-    *   The app initializes the Tello SDK and attempts to "ping" the drone.
-    *   Upon success, it triggers a background **Video Thread** to start decoding the camera stream.
-    *   It starts a 20Hz (50ms) **RC Control Loop** that continuously sends movement data to ensure responsive flight.
+1.  **Head motion → aim.** Quaternions from the headset become a heading, with
+    the centre measured at the start of every run so drift is cancelled rather
+    than flown.
+2.  **Mental commands → actions.** A trained command becomes take off, land or a
+    movement, once it passes its threshold.
+3.  **Sticks → flight.** `DroneAdapter` holds the four values; the simulator
+    reads them each frame. Keeping that boundary means the flight model can
+    change without touching anything about the brain side.
 
 ---
 
@@ -134,18 +129,21 @@ The connection between your computer and the DJI Tello is established over a ded
 The system is built on a modular architecture to ensure low latency and reliable data processing:
 
 ### 1. The Core Bridge (`drone_controller.py`)
-The main engine that synchronizes data between the Emotiv Cortex API and the Tello SDK. It handles the WebSocket lifecycle, authentication, and data stream subscriptions.
+`BCIDroneClient`, the main engine between the Emotiv Cortex API and the flight
+model. It handles the WebSocket lifecycle, authentication, and data stream
+subscriptions.
 
 ### 2. Signal Processing (`bci_core/`)
 - **QuaternionProcessor**: Converts raw spatial data from the headset into normalized Euler angles for flight control.
 - **MentalCommandProcessor**: Filters and thresholds mental command data to prevent accidental triggers.
 
 ### 3. Drone Adaptation (`drone_adapter.py`)
-Translates processed BCI signals into standard Tello RC (Remote Control) commands. It implements deadzones, sensitivity scaling, and command smoothing to ensure fluid flight.
+Translates processed BCI signals into the four stick values, with deadzones,
+sensitivity scaling and smoothing so flight stays fluid.
 
 ### 4. Dashboard (`ui.py`)
 A PyQt6-based graphical interface that provides:
-- Live video decoding via OpenCV.
+- The flight simulator and its ring run.
 - Telemetry visualization.
 - Interactive configuration of sensitivity and mental command thresholds.
 
@@ -186,7 +184,6 @@ written to disk.
 ## 🛠 Prerequisites
 
 - **Hardware**: 
-  - DJI Tello Drone.
   - Emotiv Headset (Insight, EPOC, EPOC+, or EPOC X).
 - **Software**:
   - Emotiv Cortex App (running and logged in).
@@ -224,10 +221,10 @@ The easiest way to start is via the included shell script:
 
 ### Scope: the simulator
 
-The real-drone path — Tello WiFi setup and the flight dashboard — is complete and
-still in the tree, but its entry points are hidden while the simulator is the
-product. Set `SHOW_REAL_DRONE = True` in `ui.py` to bring it back; no code was
-removed and the page indices are unchanged.
+The app flies a simulator and nothing else. The code that connected to an
+aircraft over WiFi — its video stream, the flight dashboard and the drone SDK —
+was removed, along with the OpenCV and PyAV dependencies it needed. Git history
+has it if it is ever wanted back.
 
 The flow a player walks is: **pick a headset → check the sensors → train → fly**.
 Three flags at the top of `ui.py` keep it that short, and each can be flipped
@@ -553,7 +550,7 @@ trained command and your head.
 ├── config_manager.py   # DEFAULT_CONFIG, DEVICE_DEFAULTS, migrate()
 ├── cortex.py           # Emotiv Cortex JSON-RPC client and event dispatcher
 ├── drone_adapter.py    # Mental commands -> RC velocities (head motion no longer)
-├── drone_controller.py # TelloDroneClient: binds Cortex events to everything else
+├── drone_controller.py # BCIDroneClient: binds Cortex events to everything else
 ├── i18n.py             # English / 中文 translation table
 ├── leaderboard.py      # Local high scores for the Ring Run
 ├── motion_capture.py   # Full-rate motion CSV for diagnosing drift
@@ -637,12 +634,12 @@ Two things worth knowing before handing a build to someone:
 
 ---
 
-## ⚠️ Safety Guidelines
-1. **Always start in Simulation Mode** to verify your head tracking calibration.
-2. Ensure you have plenty of open space (minimum 3m x 3m).
-3. The **Emergency Stop** button in the UI is your primary safety mechanism.
-4. If the application loses connection or is closed, the drone is programmed to land automatically.
+## ⚠️ A note on what this is
 
----
+Everything here flies a simulator. There is no aircraft, no propeller and
+nothing to damage — which is exactly why it is a good place to find out how
+reliable your mental commands really are.
 
-*Developed with ❤️ for the BCI community.*
+Take the headset off between players, and give each person their own profile:
+a signature trained on someone else's head is the most common reason a command
+"stops working".

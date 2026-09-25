@@ -28,9 +28,8 @@ completely separate:
 Nothing else on the headset is an input. Head *tilt* is read from the stream and
 deliberately discarded — see [section 4](#4-what-head-motion-does-not-do).
 
-The real-drone path (Tello over WiFi) is intact in the tree but switched off at
-`SHOW_REAL_DRONE` in `ui.py`. Everything below describes the simulator, which is
-the product.
+The app flies a simulator; the code that talked to a real aircraft has been
+removed. Everything below describes the simulator, which is the product.
 
 ---
 
@@ -48,7 +47,7 @@ graph TD
 
     subgraph App ["Application"]
         cortex_py["cortex.py<br>JSON-RPC client, event dispatcher"]
-        ctrl["drone_controller.py<br>TelloDroneClient"]
+        ctrl["drone_controller.py<br>BCIDroneClient"]
         prog["bci_core/program.py<br>ProgramSimulator"]
         qp["bci_core/processor.py<br>QuaternionProcessor"]
         mp["bci_core/mental.py<br>MentalCommandProcessor"]
@@ -368,7 +367,6 @@ EPOC X.
 
 | Flag | Default | Off means |
 | :--- | :--- | :--- |
-| `SHOW_REAL_DRONE` | `False` | Tello setup and flight dashboard unreachable. Pages stay registered; indices unchanged. |
 | `SHOW_PROFILE_LIST` | `False` | Each player types a name instead of picking a past profile. |
 | `SHOW_MOTION_TUNING` | `False` | No Configurations dialog. Recenter is the only motion control. |
 | `COINS_STRAIGHT_AHEAD` | `True` | Rings spawn dead ahead instead of off-axis. A stopgap from when steering was broken — set `False` for the real game. |
@@ -440,7 +438,7 @@ PYZ.
 
 | To understand | Read |
 | :--- | :--- |
-| Stream to action, end to end | `drone_controller.TelloDroneClient.on_new_mot_data` and `on_new_com_data` |
+| Stream to action, end to end | `drone_controller.BCIDroneClient.on_new_mot_data` and `on_new_com_data` |
 | The steering maths | `bci_core/processor.QuaternionProcessor._update_heading` |
 | Why the drone moves forward | `drone_adapter.DroneAdapter.get_rc_values` |
 | How the scene is driven | `ui.DroneSimulatorWidget.update_rc` |

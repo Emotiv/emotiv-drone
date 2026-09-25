@@ -42,6 +42,9 @@ excludes = [
     "PyQt6.Qt3DCore", "PyQt6.Qt3DRender", "PyQt6.QtQuick3D",
     "PyQt6.QtBluetooth", "PyQt6.QtNfc", "PyQt6.QtDesigner",
     "tkinter", "matplotlib", "PySide6", "PyQt5",
+    # Gone with the real-drone path; excluded so a stale local env cannot
+    # quietly put them back into a build.
+    "cv2", "av", "djitellopy",
 ]
 
 a = Analysis(
@@ -50,7 +53,7 @@ a = Analysis(
     binaries=[],
     datas=datas,
     # Imported lazily inside functions, so the dependency graph misses them.
-    hiddenimports=["av", "pydispatch", "djitellopy"],
+    hiddenimports=["pydispatch"],
     hookspath=[],
     runtime_hooks=[],
     excludes=excludes,
@@ -88,12 +91,11 @@ if sys.platform == "darwin":
         bundle_identifier="com.emotiv.dronebci",
         info_plist={
             "NSHighResolutionCapable": True,
-            # The app talks to EMOTIV Cortex over localhost and to the Tello
-            # over WiFi; macOS asks for these two before letting it.
+            # Cortex runs on localhost, which recent macOS versions treat as the
+            # local network and block silently without this. No camera key any
+            # more: nothing in the app opens a camera.
             "NSLocalNetworkUsageDescription":
-                "Connects to EMOTIV Cortex and to the Tello drone on your local network.",
-            "NSCameraUsageDescription":
-                "Displays the video stream coming from the Tello drone.",
-            "CFBundleShortVersionString": "1.0.0",
+                "Connects to the EMOTIV Cortex service on this computer.",
+            "CFBundleShortVersionString": "1.1.0",
         },
     )

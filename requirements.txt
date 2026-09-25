@@ -12,12 +12,6 @@ pyobjc-framework-Cocoa==12.1; sys_platform == 'darwin'
 pyobjc-framework-CoreText==12.1; sys_platform == 'darwin'
 pyobjc-framework-Quartz==12.1; sys_platform == 'darwin'
 
-# Tello drone SDK
-djitellopy==2.5.0
-
-# UI and video
+# UI. The drone SDK, OpenCV and PyAV left with the real-drone path: nothing
+# here talks to an aircraft or decodes a video stream any more.
 PyQt6
-opencv-python==4.11.0.86
-# Direct H.264 decoding of the Tello stream; without it ui.py falls back to
-# djitellopy's reader, which gets the colour matrix wrong.
-av==17.0.1
