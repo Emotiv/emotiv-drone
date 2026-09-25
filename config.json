@@ -1,54 +1,5 @@
 {
-    "language": "en",
-    "auto_connect": true,
-    "device_id": "",
-    "profile_name": "",
-    "simulate": false,
-    "fix_indices": false,
-    "sensitivity": 0.5,
-    "deadzone": 0.07,
-    "smoothing_window": 4,
-    "head_gain": 2.0,
-    "head_deadzone_deg": 2.0,
-    "head_expo": 0.8,
-    "head_drift_correction": false,
-    "motion_capture_seconds": 60,
-    "sens_left": 40.0,
-    "sens_right": 40.0,
-    "sens_fwd": 25.0,
-    "sens_back": 25.0,
-    "invert_pitch": false,
     "invert_yaw": false,
-    "max_speed": 60,
-    "altitude_hold": true,
-    "yaw_sensitivity": 0.5,
-    "throttle_sensitivity": 0.5,
-    "mental_mappings": [
-        {
-            "command": "push",
-            "action": "MoveForward",
-            "threshold": 0.5,
-            "auto_release": 0
-        },
-        {
-            "command": "pull",
-            "action": "None",
-            "threshold": 0.5,
-            "auto_release": 0
-        },
-        {
-            "command": "drop",
-            "action": "None",
-            "threshold": 0.5,
-            "auto_release": 0
-        },
-        {
-            "command": "lift",
-            "action": "None",
-            "threshold": 0.5,
-            "auto_release": 0
-        }
-    ],
     "device_profiles": {
         "MN8": {
             "invert_yaw": true,
