@@ -4,7 +4,7 @@ Fly with your mind. Train mental commands on an EMOTIV headset, steer by turning
 your head, and fly a drone simulator through a timed ring run — no aircraft, no
 propellers, nothing to crash.
 
-![UI Dashboard](bg.png)
+![The simulator's horizon](bg.png)
 
 ## 📥 Install and set up
 
