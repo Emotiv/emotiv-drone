@@ -1,5 +1,5 @@
 """
-Tello Drone BCI Controller – PyQt6 Dashboard
+EMOTIV Drone BCI – PyQt6 Dashboard
 Flow: BCI Setup -> Test Controls -> Drone Setup -> Flight Dashboard
 """
 

@@ -1,4 +1,4 @@
-# PyInstaller spec for the Tello BCI Controller.
+# PyInstaller spec for EMOTIV Drone BCI.
 #
 # Build from the repository root:
 #     pyinstaller packaging/EmotivDrone.spec --noconfirm

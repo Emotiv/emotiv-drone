@@ -1,5 +1,5 @@
 """
-Translations for the Tello BCI Controller UI.
+Translations for the EMOTIV Drone BCI interface.
 
 Same idea as the i18n table in emotiv-brain-light: every user-facing string is a
 key, and `t()` turns it into a sentence in the currently selected language.
@@ -17,7 +17,7 @@ I18N = {
         "lang.name": "English",
 
         # ── Shell ────────────────────────────────────────────────────────────
-        "app.title": "Tello BCI Controller",
+        "app.title": "EMOTIV Drone BCI",
         "btn.settings": "⚙ Configurations",
         "header.language": "🌐 Language",
 
@@ -186,13 +186,13 @@ I18N = {
         "drone.back": "⬅ Back to Test",
         "drone.connect": "Connect to Drone",
         "drone.connected": "Drone connected successfully! Battery: {battery}%",
-        "drone.connecting": "Connecting to Tello WiFi...",
+        "drone.connecting": "Connecting to the drone's WiFi...",
         "drone.failed": "Connection failed: {detail}",
         "drone.launch": "Launch Flight Dashboard 🚀",
         "drone.ready": "Ready to connect.",
         "drone.sim_skip": "Simulation mode. Skipping real drone connection.",
         "drone.subtitle": "Ensure you are connected to the drone's WiFi network before continuing.",
-        "drone.title": "Step 4: Connect to DJI Tello",
+        "drone.title": "Step 4: Connect to the Drone",
         "eq.back": "⬅ Back to Profiles",
         "eq.bad": "⚠️ Improve sensor contact before training. Adjust the headset.",
         "eq.next": "Start Training ➔",
@@ -465,7 +465,7 @@ I18N = {
         "auth.client_id.hint": "来自您 EMOTIV 应用的 Client ID",
 
         # ── Shell ────────────────────────────────────────────────────────────
-        "app.title": "Tello 脑机接口控制器",
+        "app.title": "EMOTIV 无人机脑机接口",
         "btn.settings": "⚙ 设置",
         "header.language": "🌐 语言",
 
@@ -612,13 +612,13 @@ I18N = {
         "drone.back": "⬅ 返回测试",
         "drone.connect": "连接无人机",
         "drone.connected": "无人机连接成功！电量：{battery}%",
-        "drone.connecting": "正在连接 Tello WiFi…",
+        "drone.connecting": "正在连接无人机 WiFi…",
         "drone.failed": "连接失败：{detail}",
         "drone.launch": "启动飞行仪表盘 🚀",
         "drone.ready": "准备连接。",
         "drone.sim_skip": "模拟模式，跳过真实无人机连接。",
         "drone.subtitle": "继续之前，请确认电脑已连接到无人机的 WiFi 网络。",
-        "drone.title": "第 4 步：连接 DJI Tello",
+        "drone.title": "第 4 步：连接无人机",
         "eq.back": "⬅ 返回配置文件",
         "eq.bad": "⚠️ 请先改善电极接触，调整头戴设备后再训练。",
         "eq.next": "开始训练 ➔",
